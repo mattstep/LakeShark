@@ -1,0 +1,9 @@
+# SSH client overlay: add after the board defaults.
+#   -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/t_display_p4.defaults;boards/ssh.defaults"
+CONFIG_LS_SSH=y
+# libssh shares mbedTLS with OTA, map downloads and NimBLE from its own task.
+CONFIG_MBEDTLS_THREADING_C=y
+CONFIG_MBEDTLS_THREADING_ALT=n
+CONFIG_MBEDTLS_THREADING_PTHREAD=y
+# libssh's socket layer uses the netif API.
+CONFIG_LWIP_NETIF_API=y

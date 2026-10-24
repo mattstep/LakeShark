@@ -99,6 +99,9 @@
 #include "ls_version.h"
 #include "ls_cpu_busy.h"
 #include "ls_c6_update.h"
+#if CONFIG_LS_SSH
+#include "ls_ssh.h"
+#endif
 
 #include "tui/ls_tui_screen.h"
 #include "tui/ls_field.h"
@@ -3108,6 +3111,9 @@ static bool console_start(bool full)
     esp_console_register_help_command();
     uat_console_register();
     if (full) {
+#if CONFIG_LS_SSH
+        ls_ssh_console_register();
+#endif
         for (size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++) {
             esp_err_t rerr = esp_console_cmd_register(&cmds[i]);
             if (rerr != ESP_OK) {

@@ -294,6 +294,13 @@ target_include_directories(test_ws PRIVATE ${FW}/components/apps/tui)
 ls_add_test(test_mdns ${FW}/components/apps/tui/ls_mdns.c)
 target_include_directories(test_mdns PRIVATE ${FW}/components/apps/tui)
 
+# The SSH app's key encoder and its terminal emulator (vendored libtmt).
+ls_add_test(test_ssh_term ${FW}/components/apps/tui/ls_ssh_keys.c
+    ${FW}/components/lsssh/third_party/libtmt/tmt.c)
+target_include_directories(test_ssh_term PRIVATE
+    ${FW}/components/apps/tui ${FW}/components/apps/tui/tuilib
+    ${FW}/components/lsssh/third_party/libtmt)
+
 # Optional private tests, if this tree has any. The file names what it
 # registers; this line does not, so it is safe to publish either way.
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/private.cmake)
