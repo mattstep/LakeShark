@@ -130,5 +130,31 @@ if(CONFIG_LS_SSH)
         # getnameinfo() flag values: see main/ls_libssh_compat.h.
         target_compile_options(${ls_libssh_lib} PRIVATE
             "-include${CMAKE_CURRENT_LIST_DIR}/main/ls_libssh_compat.h")
+
+        # Ed25519: libssh's own copy (src/external/{ed,fe,ge,sc}25519.c, with a
+        # ~109 KB base-point table in ge25519.c) duplicates the orlp/ed25519
+        # MeshCore already links. Keep libssh's files out of the build and
+        # compile components/lsssh/ls_ed25519_adapter.c into libssh instead;
+        # it implements libssh's crypto_sign_ed25519* API on MeshCore's code.
+        idf_component_get_property(ls_libssh_dir david-cermak__libssh COMPONENT_DIR)
+        idf_component_get_property(ls_meshcore_lib meshcore COMPONENT_LIB)
+        idf_component_get_property(ls_meshcore_dir meshcore COMPONENT_DIR)
+        set(ls_libssh_ed_srcs)
+        foreach(ls_ed_src ed25519.c fe25519.c ge25519.c sc25519.c)
+            list(APPEND ls_libssh_ed_srcs
+                ${ls_libssh_dir}/libssh-mirror/src/external/${ls_ed_src})
+        endforeach()
+        set_source_files_properties(${ls_libssh_ed_srcs}
+            TARGET_DIRECTORY ${ls_libssh_lib}
+            PROPERTIES HEADER_FILE_ONLY TRUE)
+        set(ls_ed_adapter ${CMAKE_CURRENT_LIST_DIR}/components/lsssh/ls_ed25519_adapter.c)
+        target_sources(${ls_libssh_lib} PRIVATE ${ls_ed_adapter})
+        target_include_directories(${ls_libssh_lib} PRIVATE
+            ${ls_meshcore_dir}/upstream/ed25519)
+        # libssh's target lives in another directory: needs CMP0079.
+        cmake_policy(PUSH)
+        cmake_policy(SET CMP0079 NEW)
+        target_link_libraries(${ls_libssh_lib} PRIVATE ${ls_meshcore_lib})
+        cmake_policy(POP)
     endif()
 endif()
