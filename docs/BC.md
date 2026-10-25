@@ -6,7 +6,10 @@ LakeShark has a calculator in the syntax of the Unix `bc` tool, in two places:
   so `bc 2 * 3` works; quote anything with a `;` in it (`bc "scale=2; 1/3"`).
   `bc` on its own starts a `bc>` session on the serial console, with the same
   line editing and Up-arrow history as the `lakeshark>` prompt; `quit`, `q`,
-  `exit`, Ctrl-D or Ctrl-C leaves it. From the TERMINAL app only the
+  `exit`, Ctrl-D or Ctrl-C leaves it, and so does Esc then Enter on an empty
+  line. On a terminal that does not answer escape sequences (the USB-serial
+  console usually), the session reads the line itself, without editing or
+  history, so that Ctrl-C and Ctrl-D still reach it. From the TERMINAL app only the
   one-expression form works: a session there would be reading the serial
   port, not the board's keyboard. Use the BC app instead.
 - **BC app**, in SYSTEM on the home screen. See docs/UI_CONTROLS.md for keys
