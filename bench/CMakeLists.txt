@@ -1678,6 +1678,9 @@ ls_add_test(test_ncm ${FW}/components/lslte/ls_ncm.c)
 target_include_directories(test_ncm PRIVATE ${FW}/components/lslte/include)
 ls_add_test(test_lte_at ${FW}/components/lslte/ls_lte_at.c)
 target_include_directories(test_lte_at PRIVATE ${FW}/components/lslte/include)
+# Default route and DNS choice across interfaces (lsnet).
+ls_add_test(test_net_policy ${FW}/components/lsnet/ls_net_policy.c)
+target_include_directories(test_net_policy PRIVATE ${FW}/components/lsnet/include)
 # FM's radio open bounded for io, lifted by an endpoint change.
 ls_add_test(test_radio_open_retry
     ${FW}/components/lakeshark/radio/radio_open_retry.c)

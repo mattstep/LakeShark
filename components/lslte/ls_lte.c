@@ -970,8 +970,8 @@ static void apply_dhcp(lte_t *s, const char *resp)
     memcpy(&ip.netmask.addr, d.mask, 4);
     memcpy(&ip.gw.addr, d.gw, 4);
     esp_netif_dhcpc_stop(s->netif);
-    /* DNS before the address: the GOT_IP that set_ip_info posts is where
-       the route policy notes this interface's servers. */
+    /* Filed under this netif only (per-interface DNS); lwIP's list gets
+       them when the route policy makes it the default. */
     for (int i = 0; i < 2; i++) {
         esp_netif_dns_info_t dns = { .ip.type = ESP_IPADDR_TYPE_V4 };
         memcpy(&dns.ip.u_addr.ip4.addr, i ? d.dns2 : d.dns1, 4);

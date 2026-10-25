@@ -2,6 +2,7 @@
    LakeShark original. */
 
 #include "ls_net.h"
+#include "ls_net_policy.h"
 
 #include <string.h>
 #include "esp_event.h"
@@ -24,51 +25,26 @@ static char s_prefer[LS_NET_PREFER_MAX] = "auto";
 static bool s_hooked;
 static esp_timer_handle_t s_later;
 
+/* DNS is kept per interface by esp_netif itself (main/Kconfig.projbuild
+   selects ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF): each DHCP client files its
+   servers under its own netif, in the tcpip thread, as the lease binds.
+   Without it lwIP has one global list that the last interface to bind or
+   renew overwrites, and a copy taken from an event handler later can be
+   another interface's (an Ethernet LAN lease ended up holding the LTE
+   carrier's 10.177.x resolvers that way). */
 #if !CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF
-/* lwIP keeps one global DNS server list, and every interface's DHCP
-   client writes it when it binds: the last one to bind wins, whichever
-   interface carries the route. Each interface's servers are noted at its
-   GOT_IP (DHCP has just written them) so the routed one's can be put back.
-   With ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF esp_netif keeps them per
-   interface itself and none of this is needed. */
-typedef struct {
-    esp_netif_t *netif;
-    esp_netif_dns_info_t dns[2];
-} dns_note_t;
-static dns_note_t s_dns[MAX_IFS];
-
-static void dns_note(esp_netif_t *n)
-{
-    esp_netif_dns_info_t d[2] = {0};
-    esp_netif_get_dns_info(n, ESP_NETIF_DNS_MAIN, &d[0]);
-    esp_netif_get_dns_info(n, ESP_NETIF_DNS_BACKUP, &d[1]);
-    int slot = -1;
-    for (int i = 0; i < MAX_IFS; i++) {
-        if (s_dns[i].netif == n) { slot = i; break; }
-        if (!s_dns[i].netif && slot < 0) slot = i;
-    }
-    if (slot < 0) return;
-    taskENTER_CRITICAL(&s_lock);
-    s_dns[slot].netif = n;
-    memcpy(s_dns[slot].dns, d, sizeof(d));
-    taskEXIT_CRITICAL(&s_lock);
-}
+#error "ls_net needs CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF"
 #endif
 
 /* The servers the interface itself was given; false when none known. */
 static bool dns_of(esp_netif_t *n, esp_netif_dns_info_t d[2])
 {
     memset(d, 0, 2 * sizeof(*d));
-#if CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF
     esp_netif_get_dns_info(n, ESP_NETIF_DNS_MAIN, &d[0]);
     esp_netif_get_dns_info(n, ESP_NETIF_DNS_BACKUP, &d[1]);
-#else
-    taskENTER_CRITICAL(&s_lock);
-    for (int i = 0; i < MAX_IFS; i++)
-        if (s_dns[i].netif == n) memcpy(d, s_dns[i].dns, 2 * sizeof(*d));
-    taskEXIT_CRITICAL(&s_lock);
-#endif
-    return d[0].ip.u_addr.ip4.addr != 0;
+    if (d[0].ip.type != ESP_IPADDR_TYPE_V4) d[0].ip.u_addr.ip4.addr = 0;
+    if (d[1].ip.type != ESP_IPADDR_TYPE_V4) d[1].ip.u_addr.ip4.addr = 0;
+    return d[0].ip.u_addr.ip4.addr != 0 || d[1].ip.u_addr.ip4.addr != 0;
 }
 
 bool ls_net_dns_of(esp_netif_t *n, esp_netif_dns_info_t d[2])
@@ -108,39 +84,58 @@ const char *ls_net_prefer(void)
     return s_prefer;
 }
 
+static void push_dns(esp_netif_dns_type_t type, uint32_t addr)
+{
+    if (!addr) return;
+    esp_netif_dns_info_t d = { .ip.type = ESP_IPADDR_TYPE_V4 };
+    d.ip.u_addr.ip4.addr = addr;
+    /* NULL: lwIP's list only. The interface's own record is left as its
+       DHCP filed it, so a stand-in never looks like a server it was given. */
+    esp_netif_set_dns_info(NULL, type, &d);
+}
+
 void ls_net_reevaluate(void)
 {
     char prefer[LS_NET_PREFER_MAX];
     taskENTER_CRITICAL(&s_lock);
     memcpy(prefer, s_prefer, sizeof(prefer));
     taskEXIT_CRITICAL(&s_lock);
-    const bool any = !strcmp(prefer, "auto");
 
     if_list_t l = {0};
     esp_netif_find_if(collect, &l);
-    esp_netif_t *best = NULL, *pref = NULL;
+    ls_net_if_t ifs[MAX_IFS];
     for (int i = 0; i < l.count; i++) {
         esp_netif_t *n = l.n[i];
-        if (!ls_net_netif_ready(n)) continue;
-        if (!any && !strcmp(esp_netif_get_ifkey(n), prefer)) pref = n;
-        if (!best || esp_netif_get_route_prio(n) > esp_netif_get_route_prio(best)) best = n;
+        esp_netif_ip_info_t ip = {0};
+        esp_netif_dns_info_t d[2];
+        ifs[i].key = esp_netif_get_ifkey(n);
+        ifs[i].up = ls_net_netif_ready(n);
+        ifs[i].prio = esp_netif_get_route_prio(n);
+        esp_netif_get_ip_info(n, &ip);
+        ifs[i].gw = ip.gw.addr;
+        dns_of(n, d);
+        ifs[i].dns[0] = d[0].ip.u_addr.ip4.addr;
+        ifs[i].dns[1] = d[1].ip.u_addr.ip4.addr;
     }
-    esp_netif_t *target = pref ? pref : best;
+    ls_net_choice_t c;
+    ls_net_choose(ifs, l.count, prefer, &c);
     /* Nothing up: leave lwIP's own choice alone. */
-    if (!target) return;
-    /* Pinning it also stops esp_netif's own route_prio switching, which
-       would otherwise undo a preference on the next GOT_IP. That is why
-       every IP event comes back through here. */
-    if (target != esp_netif_get_default_netif()) {
-        esp_netif_set_default_netif(target);
-        ESP_LOGW(TAG, "default route: %s (%s)", esp_netif_get_ifkey(target),
-                 pref ? "preferred" : "highest priority up");
-    }
-    esp_netif_dns_info_t d[2];
-    if (dns_of(target, d)) {
-        esp_netif_set_dns_info(target, ESP_NETIF_DNS_MAIN, &d[0]);
-        if (d[1].ip.u_addr.ip4.addr) esp_netif_set_dns_info(target, ESP_NETIF_DNS_BACKUP, &d[1]);
-    }
+    if (c.index < 0) return;
+    esp_netif_t *target = l.n[c.index];
+    const bool moved = target != esp_netif_get_default_netif();
+    /* Every time, not only on a change: setting the default copies this
+       interface's own servers (empty slots included) into lwIP's list, which
+       undoes a lease on another interface writing it meanwhile. Pinning
+       also stops esp_netif's own route_prio switching, which would undo a
+       preference on the next GOT_IP; that is why every IP event comes back
+       through here. */
+    esp_netif_set_default_netif(target);
+    if (c.dns_from_gw) push_dns(ESP_NETIF_DNS_MAIN, c.dns[0]);
+    else if (!ifs[c.index].dns[0]) push_dns(ESP_NETIF_DNS_MAIN, c.dns[0]);
+    if (moved || c.dns_from_gw)
+        ESP_LOGW(TAG, "default route: %s (%s)%s", ifs[c.index].key,
+                 c.preferred ? "preferred" : "highest priority up",
+                 c.dns_from_gw ? ", no DNS from its DHCP: using the gateway" : "");
 }
 
 static void later_cb(void *arg)
@@ -163,9 +158,6 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
     case IP_EVENT_STA_GOT_IP:
     case IP_EVENT_ETH_GOT_IP:
     case IP_EVENT_PPP_GOT_IP:
-#if !CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF
-        if (data) dns_note(((ip_event_got_ip_t *)data)->esp_netif);
-#endif
         ls_net_reevaluate();
         break;
     case IP_EVENT_STA_LOST_IP:
@@ -193,11 +185,6 @@ esp_err_t ls_net_init(void)
         return e;
     }
     s_hooked = true;
-#if !CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF
-    /* An interface that bound before this ran: the global list is its. */
-    esp_netif_t *d = esp_netif_get_default_netif();
-    if (d && ls_net_netif_ready(d)) dns_note(d);
-#endif
     ls_net_reevaluate();
     return ESP_OK;
 }

@@ -162,6 +162,16 @@ menu "LakeShark"
         help
             Enabling this option will initialize the SD card, so the SD card needs to be inserted into the slot. Additionally, if using the Video Player example, an MJPEG format video must be saved on the SD card.
 
+    config LS_NET_DNS_PER_NETIF
+        bool
+        default y
+        select ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF
+        help
+            Every build: each interface keeps the DNS servers its own DHCP
+            gave it, and lwIP's resolver list follows the default route
+            (components/lsnet). Without it the last lease to bind owns DNS
+            for every interface.
+
     config LS_LTE
         bool "USB LTE stick (Huawei CDC-NCM, e.g. MS2372h)"
         depends on !LS_LR2021_ONLY

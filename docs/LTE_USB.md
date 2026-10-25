@@ -13,8 +13,8 @@ idf.py -B build_tdp4_lte -D SDKCONFIG=build_tdp4_lte/sdkconfig \
   -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/t_display_p4.defaults;boards/lte.defaults" build
 ```
 
-`boards/lte.defaults` sets `CONFIG_LS_LTE=y` and
-`CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF=y` (see Routing below). The
+`boards/lte.defaults` sets `CONFIG_LS_LTE=y`. Every build selects
+`CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF` (see Routing below). The
 driver lives in `components/lslte`, the routing policy in `components/lsnet`.
 
 ## The two USB modes
@@ -117,13 +117,17 @@ Each interface has a route priority: Wi-Fi station 100, LTE 50. `lsnet`
 re-chooses the default interface on every GOT_IP/LOST_IP and Wi-Fi
 disconnect: the preferred interface if it has an address, otherwise the
 highest-priority one that has. It pins the choice with
-`esp_netif_set_default_netif` and puts that interface's DNS servers back
-into lwIP, whose resolver list is global. With
-`CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF` (set by `lte.defaults`) each
-interface keeps the servers its own DHCP gave it; without it `lsnet` notes
-them at each GOT_IP. Either way the carrier's resolvers (10.177.0.x on
-T-Mobile, reachable only over LTE) are not used while Wi-Fi carries the
-route.
+`esp_netif_set_default_netif`, which copies that interface's own DNS
+servers into lwIP, whose resolver list is global. With
+`CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF` (selected for every build by
+`LS_NET_DNS_PER_NETIF` in `main/Kconfig.projbuild`) each DHCP client files
+its servers under its own interface as the lease binds, so another
+interface's lease never lands on the routed one: the carrier's resolvers
+(10.177.0.x on T-Mobile, reachable only over LTE) are not used while Wi-Fi
+or Ethernet carries the route. An interface whose DHCP named no DNS server
+gets its gateway as the resolver. The choice itself is the pure function
+`ls_net_choose` (`components/lsnet/ls_net_policy.c`, tested by
+`bench/tests/test_net_policy.c`).
 
 The preference is stored in NVS namespace `lsnet`: `auto` (default), or an
 interface key (`WIFI_STA_DEF`, `LTE`).
