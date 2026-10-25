@@ -66,6 +66,15 @@ modes whichever way the setting is.
 7. `mac->del` and `phy->del`. `mac->del` returns the EMAC pins to GPIO.
 8. Put the PHY back in reset.
 
+Start adds the IPv4 all-hosts multicast address (01:00:5e:00:00:01) to the
+EMAC's address filter. In IDF 5.5.4, lwIP joins that group inside
+`netif_add`, before esp_netif has installed the callback that would program
+the EMAC, so the join never reaches the hardware. The leave in
+`netif_remove` does reach it. Without this entry, every stop logged four IDF
+errors ("failed to remove MAC filter" and three follow-ons). The order of
+stop and destroy does not matter here: the EMAC's filter calls do not check
+whether it is started.
+
 Calling stop when Ethernet is already stopped does nothing, and it is safe
 after a start that failed. If the driver will not uninstall, stop leaves
 the driver and EMAC in place and says a reboot is needed.

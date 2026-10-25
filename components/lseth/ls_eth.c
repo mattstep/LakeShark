@@ -300,6 +300,19 @@ static esp_err_t bring_up(void)
         esp_eth_ioctl(s_eth, ETH_CMD_S_MAC_ADDR, mac);
     esp_eth_ioctl(s_eth, ETH_CMD_G_MAC_ADDR, mac);
 
+    /* lwIP joins 224.0.0.1 (01:00:5e:00:00:01) inside netif_add, and
+       esp_netif (IDF 5.5.4, esp_netif_lwip_add) installs its multicast
+       filter callback only after netif_add returns, so that join never
+       reaches the EMAC. netif_remove's leave does, finds no such entry,
+       and esp.emac, esp_eth, the glue and esp_netif_lwip each log an
+       error on every stop. Installing the entry here makes the EMAC agree
+       with what lwIP believes; the order of stop and destroy is not the
+       cause, since the EMAC's filter calls do not check whether it is
+       started. */
+    static const uint8_t all_hosts[6] = { 0x01, 0x00, 0x5e, 0x00, 0x00, 0x01 };
+    if (esp_eth_ioctl(s_eth, ETH_CMD_ADD_MAC_FILTER, (void *)all_hosts) != ESP_OK)
+        ESP_LOGW(TAG, "all-hosts multicast filter not added; stop will log errors");
+
     esp_netif_inherent_config_t base = ESP_NETIF_INHERENT_DEFAULT_ETH();
     base.if_key = "ETH";
     base.if_desc = "eth";
