@@ -133,6 +133,26 @@ Table 15:
 before it creates the EMAC. The EMAC's software reset does not complete
 without the 50 MHz reference clock.
 
+### The strap on CRS_DV
+
+The IP101 reads its FX_HEN strap from CRS_DV (its pin 19, GPIO28 on the
+P4) when RESET_N rises. A high level selects the fiber interface. In fiber
+mode the PHY turns autonegotiation off and forces 100 Mbps full duplex, so
+the copper link never comes up. The PHY has its own 104 kOhm pull-down to
+hold the strap low. At power-on the P4's pins have no pulls, so the strap
+reads low.
+
+A stop is different. `mac->del` returns the EMAC pins through
+`gpio_reset_pin`, and that function enables the pull-up on every pin. The
+next start then latched fiber mode, and the link stayed down until a reboot:
+BMCR read 0x2100 where 0x3100 was expected, and ANLPAR read 0.
+
+The reset pulse now pulls CRS_DV down from before RESET_N rises until the
+20 ms settle time ends. The strap only needs 2.63 ms of hold time. The
+pulse also leaves the other RMII data pins with no pulls. Use `eth phy`
+to dump BMCR, BMSR, the PHY ID, ANAR and ANLPAR, the IP101 status
+registers and the reset line.
+
 ## Routing
 
 The Ethernet netif is `if_key "ETH"`, `if_desc "eth"`, DHCP client, with
@@ -163,9 +183,15 @@ eth off        stop it now and at later boots (BOOT button back)
 ```
 
 `eth on|off` and the Settings row share one setting: NVS namespace `lseth`,
-key `en`, a u8 that defaults to 1. A start blocks the caller for about
-35 ms of PHY reset plus the driver install. A stop takes about 20 ms plus
-the netif teardown.
+key `en`, a u8 that defaults to 1. Measured on the board, a start blocks
+the caller for 160-180 ms and a stop for about 20 ms. The link comes up about
+4 s after a start, and DHCP answers about 1 s after that.
+
+The IDF PHY driver normally makes `esp_eth_start` wait for autonegotiation
+to finish. That took 2.4-3 s with a cable and would take the full 4 s
+without one, so the boot task or the UI task froze. `ls_eth` sets
+`autonego_timeout_ms` to 100 so the start does not wait. The driver's 2 s
+link poll reports the link instead.
 
 ## Memory
 

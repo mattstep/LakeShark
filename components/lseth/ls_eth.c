@@ -1,8 +1,10 @@
 /* See ls_eth.h and docs/ETHERNET.md. */
 #include "ls_eth.h"
 
+#include <stdio.h>
 #include <string.h>
 
+#include "driver/gpio.h"
 #include "esp_check.h"
 #include "esp_eth.h"
 #include "esp_eth_mac_esp.h"
@@ -69,6 +71,28 @@ static esp_err_t phy_hold_reset(void)
 #endif
 }
 
+/* The IP101 latches FX_HEN from CRS_DV (its pin 19, our GPIO28) as RESET_N
+   rises: high selects the fiber interface, which turns autonegotiation off,
+   forces 100 Mbps full duplex and leaves a copper link down for good. Its
+   own pull-down (104 kOhm) is meant to keep that low. At power-on the P4's
+   pins are unpulled and it is; but mac->del hands the EMAC pins back
+   through gpio_reset_pin, which pulls every one of them up, so a restart
+   after `eth off` latched fiber mode (BMCR read 0x2100 instead of 0x3100,
+   no link until reboot). Pull CRS_DV down across the release, and leave
+   the other data pins unpulled so TX_EN is not held high either. */
+static const int s_data_pins[] = {
+    LS_BOARD_ETH_TX_EN_GPIO, LS_BOARD_ETH_TXD0_GPIO, LS_BOARD_ETH_TXD1_GPIO,
+    LS_BOARD_ETH_CRS_DV_GPIO, LS_BOARD_ETH_RXD0_GPIO, LS_BOARD_ETH_RXD1_GPIO,
+};
+
+static void straps_for_reset(bool during)
+{
+    for (size_t i = 0; i < sizeof(s_data_pins) / sizeof(s_data_pins[0]); i++)
+        gpio_set_pull_mode((gpio_num_t)s_data_pins[i], GPIO_FLOATING);
+    if (during)
+        gpio_set_pull_mode((gpio_num_t)LS_BOARD_ETH_CRS_DV_GPIO, GPIO_PULLDOWN_ONLY);
+}
+
 static esp_err_t phy_reset_pulse(void)
 {
 #if PHY_RST_VIA_EXPANDER
@@ -78,10 +102,14 @@ static esp_err_t phy_reset_pulse(void)
     if (!ls_xl9535_ready()) return ESP_ERR_INVALID_STATE;
     ESP_RETURN_ON_ERROR(ls_xl9535_out(LS_BOARD_XL_ETH_PHY_RST, false), TAG,
                         "PHY reset assert");
+    straps_for_reset(true);
     vTaskDelay(pdMS_TO_TICKS(PHY_RESET_HOLD_MS));
-    ESP_RETURN_ON_ERROR(ls_xl9535_set(LS_BOARD_XL_ETH_PHY_RST, true), TAG,
-                        "PHY reset release");
+    const esp_err_t e = ls_xl9535_set(LS_BOARD_XL_ETH_PHY_RST, true);
+    /* Tlat_h, the strap hold after release, is 2.63 ms; the settle time
+       covers it before the pull is taken off again. */
     vTaskDelay(pdMS_TO_TICKS(PHY_RESET_SETTLE_MS));
+    straps_for_reset(false);
+    ESP_RETURN_ON_ERROR(e, TAG, "PHY reset release");
     return ESP_OK;
 #else
     return ESP_OK;
@@ -225,6 +253,8 @@ static esp_err_t teardown(void)
     (void)phy_hold_reset();
 
     portENTER_CRITICAL(&s_lock);
+    /* The handlers are gone before the driver posts its link-down. */
+    if (s_st.link_up) s_st.link_changes++;
     s_st.started = false;
     s_st.link_up = false;
     s_st.has_ip = false;
@@ -248,6 +278,7 @@ static esp_err_t bring_up(void)
 {
     if (s_eth) return ESP_OK;
     s_st.phy_addr = LS_BOARD_ETH_PHY_ADDR;
+    const int64_t t0 = esp_timer_get_time();
 
     esp_err_t e = esp_netif_init();
     if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) return fail(e, "esp_netif_init");
@@ -280,6 +311,12 @@ static esp_err_t bring_up(void)
     eth_phy_config_t phy_cfg = ETH_PHY_DEFAULT_CONFIG();
     phy_cfg.phy_addr = LS_BOARD_ETH_PHY_ADDR;
     phy_cfg.reset_gpio_num = -1;    /* the expander did it above */
+    /* esp_eth_start restarts autonegotiation and then polls BMSR until it
+       completes or this runs out: 2.4-3 s with a cable, the full 4 s
+       default without one, on the boot task or the UI task that asked.
+       Nothing needs it to wait - the driver's 2 s link poll reports the
+       link when it comes - so wait one poll and go. */
+    phy_cfg.autonego_timeout_ms = 100;
     s_phy = esp_eth_phy_new_ip101(&phy_cfg);
     if (!s_phy) return fail(ESP_ERR_NO_MEM, "IP101 driver");
 
@@ -348,8 +385,9 @@ static esp_err_t bring_up(void)
     s_st.started = true;
     s_st.start_err = ESP_OK;
     portEXIT_CRITICAL(&s_lock);
-    ESP_LOGW(TAG, "IP101 up at addr %d, MAC %02x:%02x:%02x:%02x:%02x:%02x, "
+    ESP_LOGW(TAG, "IP101 up at addr %d in %lld ms, MAC %02x:%02x:%02x:%02x:%02x:%02x, "
                   "waiting for link", LS_BOARD_ETH_PHY_ADDR,
+             (esp_timer_get_time() - t0) / 1000,
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     return ESP_OK;
 }
@@ -376,6 +414,7 @@ esp_err_t ls_eth_stop(void)
 {
     if (!claim()) return ESP_ERR_INVALID_STATE;
     const bool was_up = s_eth || s_mac || s_phy;
+    const int64_t t0 = esp_timer_get_time();
     esp_err_t e = teardown();
     if (e == ESP_OK) {
         portENTER_CRITICAL(&s_lock);
@@ -385,7 +424,8 @@ esp_err_t ls_eth_stop(void)
            running leaves the button as it already is. */
         if (was_up) {
             pin_hook(false);
-            ESP_LOGW(TAG, "stopped - BOOT button back");
+            ESP_LOGW(TAG, "stopped in %lld ms - BOOT button back",
+                     (esp_timer_get_time() - t0) / 1000);
         }
     }
     release();
@@ -413,6 +453,35 @@ esp_err_t ls_eth_set_enabled(bool on)
         return e;
     }
     return ls_eth_stop();
+}
+
+/* ---------------------------------------------------------------- debug */
+
+void ls_eth_phy_dump(void)
+{
+#if PHY_RST_VIA_EXPANDER
+    bool rst = false;
+    if (ls_xl9535_get(LS_BOARD_XL_ETH_PHY_RST, &rst) == ESP_OK)
+        printf("PHY_RSTN (XL9535 IO5) reads %s\n", rst ? "high (running)" : "low (reset)");
+#endif
+    if (!s_eth) {
+        printf("driver not installed\n");
+        return;
+    }
+    /* Page 16 is the IP101's default and where the 802.3 registers live;
+       reg 20 is its page select. */
+    static const struct { uint8_t reg; const char *name; } R[] = {
+        { 0, "BMCR" }, { 1, "BMSR" }, { 1, "BMSR" }, { 2, "PHYID1" }, { 3, "PHYID2" },
+        { 4, "ANAR" }, { 5, "ANLPAR" }, { 6, "ANER" }, { 16, "PSCR" },
+        { 17, "ISR" }, { 18, "PHY_STAT" }, { 20, "PAGE" }, { 30, "MDI/X" },
+    };
+    for (size_t i = 0; i < sizeof(R) / sizeof(R[0]); i++) {
+        uint32_t v = 0;
+        esp_eth_phy_reg_rw_data_t rd = { .reg_addr = R[i].reg, .reg_value_p = &v };
+        const esp_err_t e = esp_eth_ioctl(s_eth, ETH_CMD_READ_PHY_REG, &rd);
+        if (e == ESP_OK) printf("reg %2u %-8s 0x%04lx\n", R[i].reg, R[i].name, (unsigned long)v);
+        else printf("reg %2u %-8s read failed: %s\n", R[i].reg, R[i].name, esp_err_to_name(e));
+    }
 }
 
 /* -------------------------------------------------------------- getters */

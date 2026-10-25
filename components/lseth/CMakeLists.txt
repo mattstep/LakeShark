@@ -10,7 +10,7 @@ idf_component_register(
     SRCS ${LS_ETH_SRCS}
     INCLUDE_DIRS .
     REQUIRES esp_netif esp_eth
-    PRIV_REQUIRES lakeshark console esp_event esp_timer esp_hw_support nvs_flash)
+    PRIV_REQUIRES lakeshark console esp_event esp_timer esp_hw_support nvs_flash esp_driver_gpio)
 
 if(CONFIG_LS_ETH)
     target_compile_options(${COMPONENT_LIB} PRIVATE -Wformat -Wno-format-truncation)

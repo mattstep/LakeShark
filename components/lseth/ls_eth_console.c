@@ -54,6 +54,10 @@ int ls_eth_command(int argc, char **argv)
         print_status();
         return 0;
     }
+    if (argc == 2 && !strcmp(argv[1], "phy")) {
+        ls_eth_phy_dump();
+        return 0;
+    }
     if (argc == 2 && (!strcmp(argv[1], "on") || !strcmp(argv[1], "off"))) {
         const bool on = !strcmp(argv[1], "on");
         const esp_err_t e = ls_eth_set_enabled(on);
@@ -72,6 +76,6 @@ int ls_eth_command(int argc, char **argv)
                    esp_err_to_name(e));
         return 1;
     }
-    printf("eth [status] | eth on|off   (on takes the BOOT button: GPIO35 is RMII TXD1)\n");
+    printf("eth [status] | eth phy | eth on|off   (on takes the BOOT button: GPIO35 is RMII TXD1)\n");
     return 1;
 }

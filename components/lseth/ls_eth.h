@@ -74,13 +74,16 @@ void         ls_eth_status(ls_eth_status_t *out);
 /* The on/off setting (NVS "lseth"/"en", default on), shared by `eth on|off`
    and SET > DEVICE > Ethernet.  Load once from the boot task.  set_enabled
    saves it and applies it now: on starts Ethernet, off stops it.  It blocks
-   the caller for the PHY reset and driver install (tens of ms) and returns
+   the caller for the PHY reset and driver install (under 200 ms) and returns
    the start or stop error; the setting is saved either way.  NVS goes
    through ls_nvs_run, so any task may call these. */
 bool      ls_eth_setting_load(void);
 esp_err_t ls_eth_setting_save(bool enabled);
 bool      ls_eth_enabled(void);
 esp_err_t ls_eth_set_enabled(bool on);
+
+/* `eth phy`: the PHY's registers and reset line, for bring-up. */
+void ls_eth_phy_dump(void);
 
 /* `eth` console command. */
 int ls_eth_command(int argc, char **argv);
