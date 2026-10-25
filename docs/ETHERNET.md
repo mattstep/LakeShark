@@ -23,16 +23,52 @@ measurement.
 EMAC drives that pin, so the BOOT button cannot cycle modes. In a build with
 `CONFIG_LS_ETH`:
 
-| `eth` setting | GPIO35 | BOOT button | Wired network |
+| Setting | GPIO35 | BOOT button | Wired network |
 |---|---|---|---|
 | on (default) | RMII TXD1 | off: not configured, not polled | yes |
 | off | GPIO input with pull-up | cycles P25 -> ADS-B -> FM | no, PHY held in reset |
 
-The setting takes effect at the next boot. GPIO35 gets configured early in
-boot, before anything could change it safely. If Ethernet is on but fails to
-start (for example, the PHY does not answer), the driver releases every EMAC
-pin and boot gives the button back for that run. The console's `mode next`
-command still cycles modes either way.
+There are two ways to change the setting, and both apply at once and are
+kept for later boots:
+
+- **SET > DEVICE > Ethernet** on the screen. The row reads
+  `On (BOOT key off)` or `Off (BOOT key on)`. It reads
+  `On, failed (BOOT key on)` when the setting is on but Ethernet did not
+  start.
+- **`eth on` / `eth off`** on the console.
+
+Turning it **on** parks the button task before the pin changes hands: it
+stops reading GPIO35, the pull-up comes off, and only then does the EMAC
+take the pin. Turning it **off** stops the driver and frees everything (see
+"Stopping"). Then GPIO35 goes back to a pulled-up input and the button task
+wakes up.
+
+If Ethernet is on but fails to start, at boot or on a switch, the button
+gets the pin back. Two things can cause that: the PHY does not answer, or
+there is too little internal RAM left for the DMA rings. The setting stays
+on, so the next boot tries again. The console's `mode next` command cycles
+modes whichever way the setting is.
+
+### Stopping
+
+`ls_eth_stop()` runs these steps in order:
+
+1. Unregister its event handlers. esp_event holds the loop lock while a
+   handler runs, so none is running once this returns.
+2. `esp_eth_stop`.
+3. Detach the driver's input path with `esp_eth_update_input_path_info(...,
+   NULL, NULL)`. The driver then drops frames.
+4. Wait 20 ms, so the rx task finishes any frame it already holds.
+5. Delete the netif glue, then `esp_netif_destroy`. Destroy runs on the
+   tcpip thread and returns once lwIP has let go of the netif. If Wi-Fi is
+   up, it becomes the default route again.
+6. `esp_eth_driver_uninstall`.
+7. `mac->del` and `phy->del`. `mac->del` returns the EMAC pins to GPIO.
+8. Put the PHY back in reset.
+
+Calling stop when Ethernet is already stopped does nothing, and it is safe
+after a start that failed. If the driver will not uninstall, stop leaves
+the driver and EMAC in place and says a reboot is needed.
 
 A build without `CONFIG_LS_ETH` does exactly what it did before: it never
 touches the PHY reset, and the button always works.
@@ -65,7 +101,9 @@ Sources:
 - The same repository's `t_display_p4_driver.cpp`. `SetEthernetPowerEnabled()`
   writes `kEthernetRst` (high to run the PHY), and `InitXl9535()` drives it
   low as an output at init.
-- The vendor's `main/examples/ethernet_iperf/main.cpp` and `sdkconfig.defaults`
+- The vendor's ethernet_iperf example
+  (https://github.com/Xinyuan-LilyGO/T-Display-P4/blob/main/main/examples/ethernet_iperf/main.cpp)
+  and its `sdkconfig.defaults`
   (`CONFIG_ETHERNET_PHY_IP101=y`, `CONFIG_ETHERNET_PHY_RST_GPIO=-1`). Neither
   sets pins, so they use the defaults of Espressif's `ethernet_init` component.
 - ESP-IDF 5.5.4's `ETH_ESP32_EMAC_DEFAULT_CONFIG()` for the P4 uses the same
@@ -74,8 +112,9 @@ Sources:
 
 ### Reset timing
 
-IP101GRI datasheet (IP101G-DS-R01, May 2014, `docs/IP101GRI.pdf` in the
-vendor repository), Table 15:
+IP101GRI datasheet (IP101G-DS-R01, May 2014,
+https://github.com/Xinyuan-LilyGO/T-Display-P4/blob/main/docs/IP101GRI.pdf),
+Table 15:
 
 - Trst, reset held low: at least 10 ms.
 - Tclk_MII_rdy, RMII clock output valid after release: at most 10 ms.
@@ -110,12 +149,14 @@ route/DNS module will choose between them. This module only exposes
 eth            status: setting, link, speed/duplex, MAC, IP/mask/gw/DNS,
                link changes, time since link up, route,
                the receive task's spare stack
-eth on         use Ethernet from the next boot (BOOT button off)
-eth off        BOOT button from the next boot (no wired network)
+eth on         start Ethernet now and at later boots (BOOT button off)
+eth off        stop it now and at later boots (BOOT button back)
 ```
 
-`eth on|off` writes NVS namespace `lseth`, key `en` (u8, default 1), and
-asks for a reboot.
+`eth on|off` and the Settings row share one setting: NVS namespace `lseth`,
+key `en`, a u8 that defaults to 1. A start blocks the caller for about
+35 ms of PHY reset plus the driver install. A stop takes about 20 ms plus
+the netif teardown.
 
 ## Memory
 
@@ -132,8 +173,8 @@ free after boot, and IDF's P4 defaults would take 17 KB of it.
 | DMA total | 17,280 B | 6,912 B |
 | `emac_rx` task stack | 4,096 B | 3,072 B |
 
-Static internal RAM grows by 504 bytes: 400 B of IRAM for the EMAC ISR
-and 104 B of `.bss` (from `esp_idf_size`, stock build against the
+Static internal RAM grows by 568 bytes: 400 B of IRAM for the EMAC ISR
+and 168 B of `.bss` (from `esp_idf_size`, stock build against the
 eth.defaults build). That comes to about 11 KB of internal RAM in all,
 counting heap headers and the task's TCB. IDF's defaults would take about
 22 KB. Received frames
@@ -162,3 +203,9 @@ fragments internal RAM, for the same reason Wi-Fi starts there.
   smaller rings.
 - The `emac_rx` stack margin at 3 KB. `eth` prints the high-water mark.
 - Whether holding the PHY in reset with `eth off` saves measurable current.
+- Switching at runtime: whether a start late in the run, after USB has
+  fragmented internal RAM, still finds the 6.75 KB of DMA rings and the
+  3 KB task stack. If it does not, the row shows `On, failed`. Also
+  whether a stop with traffic flowing tears down cleanly, and that the
+  button neither sees TXD1 traffic as presses nor misses real ones after
+  `eth off`.

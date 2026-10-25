@@ -524,12 +524,20 @@ static bool hl_mode_index_by_name(const char *name, int *out)
 }
 
 /* GPIO35 is the BOOT button and RMII TXD1. With Ethernet built in and its
-   setting on, the EMAC has it and the button is not configured or polled;
-   a start that fails hands it back (see app_main). Read once on the boot
-   task, before gpio_init, since the pin is configured there. */
+   setting on, the EMAC has it and the button is not configured or polled.
+   The setting is read on the boot task before gpio_init, since the pin is
+   configured there; after that ls_eth hands the pin back and forth through
+   boot_btn_pin_hook, at boot (a start that fails) and at runtime (`eth
+   on|off`, SET > DEVICE > Ethernet). */
 #if CONFIG_LS_ETH
 static bool s_eth_wanted;
 #define BOOT_BTN_ENABLED (!s_eth_wanted)
+/* The button task parks rather than exits: its stack and TCB are static,
+   and a static task cannot be safely re-created until the idle task has
+   reaped it. */
+static atomic_bool s_btn_want = true;
+static atomic_bool s_btn_parked;
+static TaskHandle_t s_btn_task;
 #else
 #define BOOT_BTN_ENABLED true
 #endif
@@ -551,6 +559,18 @@ static void boot_btn_task(void *arg)
     (void)arg;
     int stable = 1, prev = 1, cnt = 0;
     for (;;) {
+#if CONFIG_LS_ETH
+        if (!atomic_load(&s_btn_want)) {
+            /* Not one more read: the level is TXD1's now, and two low
+               samples would cycle the mode. */
+            atomic_store(&s_btn_parked, true);
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            atomic_store(&s_btn_parked, false);
+            stable = prev = 1;
+            cnt = 0;
+            continue;
+        }
+#endif
         int lvl = gpio_get_level(BOOT_BTN_GPIO);
         if (lvl == stable) {
             cnt = 0;
@@ -566,6 +586,26 @@ static void boot_btn_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
+
+#if CONFIG_LS_ETH
+static void boot_btn_pin_hook(bool eth_owns)
+{
+    if (eth_owns) {
+        atomic_store(&s_btn_want, false);
+        /* The task notices within one 20 ms poll. */
+        for (int i = 0; s_btn_task && !atomic_load(&s_btn_parked) && i < 10; i++)
+            vTaskDelay(pdMS_TO_TICKS(10));
+        if (s_btn_task && !atomic_load(&s_btn_parked))
+            ESP_LOGW(TAG, "BOOT button task did not park in 100 ms");
+        /* The pull-up would fight the EMAC driving TXD1. */
+        gpio_set_pull_mode(BOOT_BTN_GPIO, GPIO_FLOATING);
+    } else {
+        boot_btn_gpio_init();
+        atomic_store(&s_btn_want, true);
+        if (s_btn_task) xTaskNotifyGive(s_btn_task);
+    }
+}
+#endif
 
 static void gpio_init(void)
 {
@@ -3062,7 +3102,7 @@ static bool console_start(bool full)
           .hint = "listen|scan|pocsag|wfm|am|acars|flex|same|aprs|ais", .func = &cmd_fm },
         { .command = "wifi", .help = "Saved Wi-Fi networks; wifi add \"My Net\" pass", .func = &cmd_wifi },
 #if CONFIG_LS_ETH
-        { .command = "eth", .help = "Wired Ethernet status; 'eth on|off' at next boot (on takes the BOOT button: GPIO35 is RMII TXD1)",
+        { .command = "eth", .help = "Wired Ethernet status; 'eth on|off' switches it now and for later boots (on takes the BOOT button: GPIO35 is RMII TXD1)",
           .hint = "[status|on|off]", .func = &ls_eth_command },
 #endif
         { .command = "vol",    .help = "Volume 0-100 (or +n / -n)", .hint = "<n|+n|-n>",
@@ -3265,6 +3305,8 @@ void app_main(void)
 
 #if CONFIG_LS_ETH
     s_eth_wanted = ls_eth_setting_load();
+    atomic_store(&s_btn_want, !s_eth_wanted);
+    ls_eth_set_pin_hook(boot_btn_pin_hook);
 #endif
     gpio_init();
 
@@ -3463,17 +3505,15 @@ void app_main(void)
     {
         const ls_eth_config_t eth_cfg = { .enabled = s_eth_wanted };
         const esp_err_t ee = ls_eth_start(&eth_cfg);
-        if (s_eth_wanted && ee != ESP_OK) {
-            /* The teardown returned GPIO35 to GPIO; a board with no cable
-               fitted still has a PHY, so this is a fault, not a choice. */
+        /* A failed start has already handed GPIO35 back through the hook;
+           a board with no cable fitted still has a PHY, so that is a
+           fault, not a choice. */
+        if (s_eth_wanted && ee != ESP_OK)
             ESP_LOGW(TAG, "Ethernet did not start (%s) - BOOT button back on GPIO%d",
                      esp_err_to_name(ee), (int)BOOT_BTN_GPIO);
-            s_eth_wanted = false;
-            boot_btn_gpio_init();
-        } else if (s_eth_wanted) {
-            ESP_LOGW(TAG, "GPIO%d is RMII TXD1: BOOT button off ('eth off' + reboot restores it)",
+        else if (s_eth_wanted)
+            ESP_LOGW(TAG, "GPIO%d is RMII TXD1: BOOT button off ('eth off' gives it back)",
                      (int)BOOT_BTN_GPIO);
-        }
     }
 #endif
 
@@ -3540,9 +3580,15 @@ void app_main(void)
        "give it a boot sound" actually meant. The splash also reads the
        boot-sound setting, which this call never did. */
 
-    if (BOOT_BTN_ENABLED)
-        xTaskCreateStatic(boot_btn_task, "boot_btn", sizeof(s_boot_btn_stack),
-                          NULL, 5, s_boot_btn_stack, &s_boot_btn_tcb);
+#if CONFIG_LS_ETH
+    /* Always made, parked while the EMAC has the pin, so `eth off` can wake
+       it. A failed start before this has already set s_btn_want. */
+    s_btn_task = xTaskCreateStatic(boot_btn_task, "boot_btn", sizeof(s_boot_btn_stack),
+                                   NULL, 5, s_boot_btn_stack, &s_boot_btn_tcb);
+#else
+    xTaskCreateStatic(boot_btn_task, "boot_btn", sizeof(s_boot_btn_stack),
+                      NULL, 5, s_boot_btn_stack, &s_boot_btn_tcb);
+#endif
     if(!cell_performance_active())xTaskCreateStatic(settings_task, "settings", SETTINGS_STACK_WORDS, NULL, 2,
                       s_settings_stack, &s_settings_tcb);
 

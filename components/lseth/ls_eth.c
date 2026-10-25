@@ -151,8 +151,38 @@ static void on_ip_event(void *arg, esp_event_base_t base, int32_t id,
 
 /* ------------------------------------------------------------- bring-up */
 
-static void teardown(void)
+/* The stored setting, cached by load and save. */
+static bool s_setting = true;
+/* One switch at a time: the console and the Settings screen can both ask. */
+static volatile bool s_busy;
+static ls_eth_pin_hook_t s_pin_hook;
+
+void ls_eth_set_pin_hook(ls_eth_pin_hook_t fn) { s_pin_hook = fn; }
+
+static void pin_hook(bool eth_owns)
 {
+    if (s_pin_hook) s_pin_hook(eth_owns);
+}
+
+static bool claim(void)
+{
+    bool ok = false;
+    portENTER_CRITICAL(&s_lock);
+    if (!s_busy) { s_busy = true; ok = true; }
+    portEXIT_CRITICAL(&s_lock);
+    return ok;
+}
+
+static void release(void) { s_busy = false; }
+
+/* Undoes as much of a start as happened, in IDF's own order, so it serves a
+   start that failed half way and a stop alike. ESP_ERR_INVALID_STATE when
+   the driver would not uninstall: it and the EMAC are then left installed
+   (deleting the MAC under it would be worse) and only a reboot clears it. */
+static esp_err_t teardown(void)
+{
+    /* esp_event holds the loop's lock while a handler runs, so once these
+       return neither handler is running or will run again. */
     if (s_eth_evt)
         esp_event_handler_instance_unregister(ETH_EVENT, ESP_EVENT_ANY_ID, s_eth_evt);
     if (s_got_ip_evt)
@@ -161,52 +191,71 @@ static void teardown(void)
         esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_ETH_LOST_IP, s_lost_ip_evt);
     s_eth_evt = s_got_ip_evt = s_lost_ip_evt = NULL;
 
-    /* IDF's own order. The glue holds a reference on the driver, and
-       uninstall refuses while one is outstanding. */
+    if (s_eth && s_st.started) {
+        esp_eth_stop(s_eth);
+        /* A frame the rx task already holds must not reach a netif that is
+           about to be freed: cut the input path (public API, the driver then
+           drops frames) and give the task, priority 15 on either core, a
+           moment to finish the one in hand. */
+        esp_eth_update_input_path_info(s_eth, NULL, NULL);
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    /* The glue holds a reference on the driver and uninstall refuses while
+       one is outstanding. esp_netif_destroy runs on the tcpip thread and
+       returns once lwIP has let go of the netif, so nothing transmits on
+       the driver after it. */
     if (s_glue) esp_eth_del_netif_glue(s_glue);
+    s_glue = NULL;
     if (s_netif) esp_netif_destroy(s_netif);
-    if (s_eth) esp_eth_driver_uninstall(s_eth);
+    s_netif = NULL;
+    if (s_eth) {
+        const esp_err_t e = esp_eth_driver_uninstall(s_eth);
+        if (e != ESP_OK) {
+            ESP_LOGE(TAG, "driver uninstall: %s - Ethernet stays half down "
+                          "until reboot", esp_err_to_name(e));
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+    s_eth = NULL;
     /* mac->del also returns every EMAC pin, GPIO35 among them, to GPIO. */
     if (s_mac) s_mac->del(s_mac);
     if (s_phy) s_phy->del(s_phy);
-    s_netif = NULL;
-    s_glue = NULL;
-    s_eth = NULL;
     s_mac = NULL;
     s_phy = NULL;
     (void)phy_hold_reset();
+
+    portENTER_CRITICAL(&s_lock);
+    s_st.started = false;
+    s_st.link_up = false;
+    s_st.has_ip = false;
+    s_st.speed_mbps = 0;
+    s_st.link_since_us = 0;
+    portEXIT_CRITICAL(&s_lock);
+    return ESP_OK;
 }
 
 static esp_err_t fail(esp_err_t err, const char *what)
 {
-    ESP_LOGE(TAG, "%s: %s - Ethernet off for this boot", what, esp_err_to_name(err));
-    teardown();
+    ESP_LOGE(TAG, "%s: %s - Ethernet off, BOOT button back", what, esp_err_to_name(err));
+    if (teardown() == ESP_OK) pin_hook(false);
     portENTER_CRITICAL(&s_lock);
     s_st.start_err = err;
     portEXIT_CRITICAL(&s_lock);
     return err;
 }
 
-esp_err_t ls_eth_start(const ls_eth_config_t *cfg)
+static esp_err_t bring_up(void)
 {
-    if (!cfg) return ESP_ERR_INVALID_ARG;
     if (s_eth) return ESP_OK;
-
-    s_st.enabled = cfg->enabled;
     s_st.phy_addr = LS_BOARD_ETH_PHY_ADDR;
-    if (!cfg->enabled) {
-        /* Off: a PHY in reset draws next to nothing and leaves its RMII
-           inputs (GPIO35 is one) to whoever else wants them. */
-        (void)phy_hold_reset();
-        s_st.start_err = ESP_ERR_INVALID_STATE;
-        ESP_LOGW(TAG, "off by setting ('eth on' and reboot to use it)");
-        return ESP_ERR_INVALID_STATE;
-    }
 
     esp_err_t e = esp_netif_init();
     if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) return fail(e, "esp_netif_init");
     e = esp_event_loop_create_default();
     if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) return fail(e, "event loop");
+
+    /* GPIO35's other user lets go before the EMAC claims it. */
+    pin_hook(true);
 
     e = phy_reset_pulse();
     if (e != ESP_OK) return fail(e, "PHY reset via the IO expander");
@@ -292,6 +341,67 @@ esp_err_t ls_eth_start(const ls_eth_config_t *cfg)
     return ESP_OK;
 }
 
+esp_err_t ls_eth_start(const ls_eth_config_t *cfg)
+{
+    if (!cfg) return ESP_ERR_INVALID_ARG;
+    s_setting = cfg->enabled;
+    if (!cfg->enabled) {
+        /* Off: a PHY in reset draws next to nothing and leaves its RMII
+           inputs (GPIO35 is one) to whoever else wants them. */
+        (void)phy_hold_reset();
+        s_st.start_err = ESP_ERR_INVALID_STATE;
+        ESP_LOGW(TAG, "off by setting ('eth on' or SET > DEVICE > Ethernet)");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!claim()) return ESP_ERR_INVALID_STATE;
+    const esp_err_t e = bring_up();
+    release();
+    return e;
+}
+
+esp_err_t ls_eth_stop(void)
+{
+    if (!claim()) return ESP_ERR_INVALID_STATE;
+    const bool was_up = s_eth || s_mac || s_phy;
+    esp_err_t e = teardown();
+    if (e == ESP_OK) {
+        portENTER_CRITICAL(&s_lock);
+        s_st.start_err = ESP_ERR_INVALID_STATE;
+        portEXIT_CRITICAL(&s_lock);
+        /* Only a pin the EMAC had is handed back; a stop with nothing
+           running leaves the button as it already is. */
+        if (was_up) {
+            pin_hook(false);
+            ESP_LOGW(TAG, "stopped - BOOT button back");
+        }
+    }
+    release();
+    return e;
+}
+
+bool ls_eth_enabled(void) { return s_setting; }
+
+bool ls_eth_running(void)
+{
+    portENTER_CRITICAL(&s_lock);
+    const bool on = s_st.started;
+    portEXIT_CRITICAL(&s_lock);
+    return on;
+}
+
+esp_err_t ls_eth_set_enabled(bool on)
+{
+    esp_err_t e = ls_eth_setting_save(on);
+    if (e != ESP_OK) return e;
+    if (on) {
+        if (!claim()) return ESP_ERR_INVALID_STATE;
+        e = bring_up();
+        release();
+        return e;
+    }
+    return ls_eth_stop();
+}
+
 /* -------------------------------------------------------------- getters */
 
 esp_netif_t *ls_eth_netif(void) { return s_netif; }
@@ -318,6 +428,7 @@ void ls_eth_status(ls_eth_status_t *out)
     portENTER_CRITICAL(&s_lock);
     *out = s_st;
     portEXIT_CRITICAL(&s_lock);
+    out->enabled = s_setting;
     /* Addresses straight from the netif rather than a copy kept from the
        event, so a lease renewal or a DNS server set elsewhere shows. */
     memset(&out->ip, 0, sizeof(out->ip));
@@ -348,6 +459,7 @@ bool ls_eth_setting_load(void)
 {
     bool en = true;
     (void)ls_nvs_run(load_job, &en, 0);
+    s_setting = en;
     return en;
 }
 
@@ -364,5 +476,7 @@ static esp_err_t save_job(void *ctx)
 
 esp_err_t ls_eth_setting_save(bool enabled)
 {
-    return ls_nvs_run(save_job, &enabled, 0);
+    const esp_err_t e = ls_nvs_run(save_job, &enabled, 0);
+    if (e == ESP_OK) s_setting = enabled;
+    return e;
 }

@@ -56,16 +56,22 @@ int ls_eth_command(int argc, char **argv)
     }
     if (argc == 2 && (!strcmp(argv[1], "on") || !strcmp(argv[1], "off"))) {
         const bool on = !strcmp(argv[1], "on");
-        const esp_err_t e = ls_eth_setting_save(on);
-        if (e != ESP_OK) {
-            printf("eth: could not save the setting: %s\n", esp_err_to_name(e));
-            return 1;
+        const esp_err_t e = ls_eth_set_enabled(on);
+        if (e == ESP_OK) {
+            printf(on ? "eth: on - GPIO35 is RMII TXD1, BOOT button off\n"
+                      : "eth: off - PHY in reset, BOOT button on GPIO35\n");
+            return 0;
         }
-        printf("eth: %s from the next boot - reboot to apply.\n", on ? "on" : "off");
-        printf(on ? "     GPIO35 becomes RMII TXD1, so the BOOT button stops cycling modes.\n"
-                  : "     GPIO35 goes back to the BOOT button; no wired network.\n");
-        return 0;
+        if (ls_eth_enabled() != on)
+            printf("eth: could not save the setting: %s\n", esp_err_to_name(e));
+        else if (on)
+            printf("eth: saved as on, but start failed: %s - BOOT button kept "
+                   "(a reboot retries)\n", esp_err_to_name(e));
+        else
+            printf("eth: saved as off, but stop failed: %s - reboot to apply\n",
+                   esp_err_to_name(e));
+        return 1;
     }
-    printf("eth [status] | eth on|off   (on/off apply at the next boot)\n");
+    printf("eth [status] | eth on|off   (on takes the BOOT button: GPIO35 is RMII TXD1)\n");
     return 1;
 }

@@ -168,7 +168,8 @@ menu "LakeShark"
 
             GPIO35 is both the BOOT button and RMII TXD1. With this on and
             the `eth` setting on (the default), the BOOT button does not
-            cycle modes. `eth off` and a reboot give it back.
+            cycle modes. `eth off` or SET > DEVICE > Ethernet gives it back,
+            at once.
 
             Costs about 11 KB of internal RAM with the eth.defaults rings:
             6.75 KB of DMA buffers and descriptors, the receive task's 3 KB

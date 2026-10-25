@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include "sdkconfig.h"
 
 #include "../../ls_theme.h"
 #include "../../ls_tui_ui.h"
@@ -25,6 +26,9 @@
 #include "../../ls_i18n.h"
 #include "../../ls_action.h"
 #include "../../ls_quick.h"
+#if CONFIG_LS_ETH
+#include "ls_eth.h"
+#endif
 
 static int s_sel;
 
@@ -309,6 +313,21 @@ static void ap_next(void)
     (void)ls_action_call("wifi.ap_renew", NULL, &out, ls_quick_grant_builtin());
 }
 
+#if CONFIG_LS_ETH
+/* Wired Ethernet against the BOOT button: GPIO35 is both, as RMII TXD1.
+   The switch is live - ls_eth starts or stops the EMAC and hands the pin to
+   the button - and kept for later boots. A start can fail (no PHY, or too
+   little internal RAM left for the DMA rings), which the row says. */
+static void eth_show(char *b, size_t n)
+{
+    const char *s = !ls_eth_enabled() ? "Off (BOOT key on)"
+                  : ls_eth_running()  ? "On (BOOT key off)"
+                                      : "On, failed (BOOT key on)";
+    snprintf(b, n, "%s", ls_tr(s));
+}
+static void eth_next(void) { (void)ls_eth_set_enabled(!ls_eth_enabled()); }
+#endif
+
 static void lock_show(char *b, size_t n) { snprintf(b, n, "%s", ls_tr("lock now")); }
 static void lock_next(void) { ls_tui_set_locked(true); }
 
@@ -405,6 +424,9 @@ static const item_t DEVICE_ITEMS[] = {
     { "LoRa module",    loramod_show,  loramod_next, NULL },
     { "Language",       lang_show,     lang_next, NULL },
     { "Hotspot",        ap_show,       ap_next, NULL },
+#if CONFIG_LS_ETH
+    { "Ethernet",       eth_show,      eth_next, NULL },
+#endif
     { "USB autoreboot", usb_show,      usb_next, NULL },
     { "Update",         update_show,   update_next, NULL },
     { "Check for updates", updchk_show, updchk_next, NULL },
@@ -416,7 +438,15 @@ static const set_page_t SET_PAGES[SETP_COUNT] = {
     [SETP_SOUND]   = { "SETTINGS > SOUND", SOUND_ITEMS,   COUNT(SOUND_ITEMS) },
     [SETP_DEVICE]  = { "SETTINGS > DEVICE", DEVICE_ITEMS,  COUNT(DEVICE_ITEMS) },
 };
+/* DEVICE grows a box with Ethernet built in. */
+#if CONFIG_LS_ETH
+#define MAX_ITEMS 11
+#else
 #define MAX_ITEMS 10
+#endif
+_Static_assert(COUNT(ROOT_ITEMS) <= MAX_ITEMS && COUNT(DISPLAY_ITEMS) <= MAX_ITEMS &&
+               COUNT(SOUND_ITEMS) <= MAX_ITEMS && COUNT(DEVICE_ITEMS) <= MAX_ITEMS,
+               "a settings page has more boxes than s_hit holds");
 
 static const set_page_t *page_get(void) { return &SET_PAGES[s_page]; }
 
