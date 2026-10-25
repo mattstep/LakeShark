@@ -3,7 +3,7 @@
 #include "ls_test.h"
 #include "ls_tui_density.h"
 
-LS_CASE(large_preference_is_limited_to_hubs_and_settings)
+LS_CASE(large_preference_is_limited_to_hubs_settings_and_terminal)
 {
     const char *apps[] = {"P25", "FM", "MAP", "GPS", "LINK", "FALLS",
                           "REC", "SUB-GHZ", "MIX-RF", "DIAG"};
@@ -14,6 +14,7 @@ LS_CASE(large_preference_is_limited_to_hubs_and_settings)
     LS_EQ_INT(ls_tui_font_for_view(2,"HOME",false),2);
     LS_EQ_INT(ls_tui_font_for_view(2,"RADIOS",false),2);
     LS_EQ_INT(ls_tui_font_for_view(2,"SET",false),2);
+    LS_EQ_INT(ls_tui_font_for_view(2,"SSH",false),2);
     LS_EQ_INT(ls_tui_font_for_view(2,"P25",true),0);
     LS_EQ_INT(ls_tui_font_for_view(2,NULL,false),0);
 }

@@ -208,6 +208,49 @@ static void pump(ls_ssh_session_t *s, ssh_session ss, ssh_channel ch)
     if (sig) ssh_string_free_char(sig);
 }
 
+/* Terminal modes for the pty request (RFC 4254 section 8: an opcode byte and
+   a big-endian uint32 each, ended by opcode 0). ssh_channel_request_pty_size()
+   copies the modes of our own stdin whenever isatty() says it is a terminal;
+   ESP-IDF's console VFS says so, yet its tcgetattr() hands back flag words
+   that are all but zero, and the remote shell then ran with ECHO, ICANON,
+   ICRNL and ONLCR off: keystrokes never echoed and output came back as bare
+   LFs. These are libssh's own encode_default_opts() values, the usual sane
+   line discipline; VERASE is 0x7f because that is what our BACKSPACE sends. */
+#define PTY_MODE(op, v) (op), (uint8_t)((v) >> 24), (uint8_t)((v) >> 16), \
+                        (uint8_t)((v) >> 8), (uint8_t)(v)
+static const uint8_t k_pty_modes[] = {
+    PTY_MODE(1, 0x03),    /* VINTR */     PTY_MODE(2, 0x1c),    /* VQUIT */
+    PTY_MODE(3, 0x7f),    /* VERASE */    PTY_MODE(4, 0x15),    /* VKILL */
+    PTY_MODE(5, 0x04),    /* VEOF */      PTY_MODE(6, 0),       /* VEOL */
+    PTY_MODE(7, 0),       /* VEOL2 */     PTY_MODE(8, 0x11),    /* VSTART */
+    PTY_MODE(9, 0x13),    /* VSTOP */     PTY_MODE(10, 0x1a),   /* VSUSP */
+    PTY_MODE(11, 0x19),   /* VDSUSP */    PTY_MODE(12, 0x12),   /* VREPRINT */
+    PTY_MODE(13, 0x17),   /* VWERASE */   PTY_MODE(14, 0x16),   /* VLNEXT */
+    PTY_MODE(18, 0x0f),   /* VDISCARD */
+    PTY_MODE(30, 0),      /* IGNPAR */    PTY_MODE(31, 0),      /* PARMRK */
+    PTY_MODE(32, 0),      /* INPCK */     PTY_MODE(33, 0),      /* ISTRIP */
+    PTY_MODE(34, 0),      /* INLCR */     PTY_MODE(35, 0),      /* IGNCR */
+    PTY_MODE(36, 1),      /* ICRNL */     PTY_MODE(37, 0),      /* IUCLC */
+    PTY_MODE(38, 1),      /* IXON */      PTY_MODE(39, 0),      /* IXANY */
+    PTY_MODE(40, 0),      /* IXOFF */     PTY_MODE(41, 0),      /* IMAXBEL */
+    PTY_MODE(42, 1),      /* IUTF8 */
+    PTY_MODE(50, 1),      /* ISIG */      PTY_MODE(51, 1),      /* ICANON */
+    PTY_MODE(52, 0),      /* XCASE */     PTY_MODE(53, 1),      /* ECHO */
+    PTY_MODE(54, 1),      /* ECHOE */     PTY_MODE(55, 1),      /* ECHOK */
+    PTY_MODE(56, 0),      /* ECHONL */    PTY_MODE(57, 0),      /* NOFLSH */
+    PTY_MODE(58, 0),      /* TOSTOP */    PTY_MODE(59, 1),      /* IEXTEN */
+    PTY_MODE(60, 1),      /* ECHOCTL */   PTY_MODE(61, 1),      /* ECHOKE */
+    PTY_MODE(62, 0),      /* PENDIN */
+    PTY_MODE(70, 1),      /* OPOST */     PTY_MODE(71, 0),      /* OLCUC */
+    PTY_MODE(72, 1),      /* ONLCR */     PTY_MODE(73, 0),      /* OCRNL */
+    PTY_MODE(74, 0),      /* ONOCR */     PTY_MODE(75, 0),      /* ONLRET */
+    PTY_MODE(90, 1),      /* CS7 */       PTY_MODE(91, 1),      /* CS8 */
+    PTY_MODE(92, 0),      /* PARENB */    PTY_MODE(93, 0),      /* PARODD */
+    PTY_MODE(128, 38400), /* ISPEED */    PTY_MODE(129, 38400), /* OSPEED */
+    0,                    /* TTY_OP_END */
+};
+#undef PTY_MODE
+
 static void run_session(ls_ssh_session_t *s)
 {
     ssh_session ss = ssh_new();
@@ -305,7 +348,8 @@ static void run_session(ls_ssh_session_t *s)
         goto out;
     }
     if (s->mode == LS_SSH_SHELL) {
-        if (ssh_channel_request_pty_size(ch, s->term, s->cols, s->rows) != SSH_OK) {
+        if (ssh_channel_request_pty_size_modes(ch, s->term, s->cols, s->rows,
+                                               k_pty_modes, sizeof k_pty_modes) != SSH_OK) {
             set_end(s, LS_SSH_END_CHANNEL, "pty: %s", ssh_get_error(ss));
             goto out;
         }
