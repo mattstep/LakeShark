@@ -83,6 +83,16 @@ completes a command; Left/Right scrolls output. KEYS opens touch input. ERRORS
 runs `crumb log`, HEAP shows memory, and CLEAR clears output. Type `help` for
 the available console commands.
 
+BC is in SYSTEM: a calculator in bc's syntax (docs/BC.md). Type an expression
+and Enter evaluates it; Up/Down recalls earlier lines, Left/Right moves the
+cursor, Backspace deletes before it, and Esc clears the line, then leaves.
+Without a keyboard a keypad fills the bottom half: digits, `. + - * / ^ ( )`,
+`=` to evaluate, DEL, CLR, LAST (types `last`), ABC for the touch keyboard
+(letters for `sqrt(`, `scale=` and names) and BACK. Tapping the input line
+also opens the touch keyboard, tapping the output scrolls it, and tapping the
+bottom row shows or hides the keypad. Variables, `scale` and `last` stay while
+the board is on. The same calculator is `bc` on the serial console.
+
 CELL WATCH is in RADIO. BAND/B selects a band, LEARN/L takes three baseline
 passes, LOAD/D loads a baseline, and SITE/G chooses GPS or LOCAL. LTE/E searches
 for LTE carriers. HIGH RATE/P offers a restart into the high-rate capture mode.
