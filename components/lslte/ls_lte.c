@@ -71,6 +71,7 @@ static const char *TAG = "lte";
 #define REDIAL_US        (10 * 1000000LL)
 #define SIG_POLL_US      (30 * 1000000LL)
 #define SEEN_HOLD_US     (30 * 1000000LL)
+#define LOST_WAIT_US     (5 * 1000000LL)
 
 /* usb_modeswitch's HuaweiNewMode message: a vendor SCSI command (0x11
    0x06) in a Bulk-Only CBW. */
@@ -114,7 +115,10 @@ struct lte {
     volatile bool ctrl_done;
     bool at_rx_busy, at_tx_busy, rx_busy[2], tx_busy[NTX], intr_busy;
     bool tearing_down, data_ok;
-    bool lost; /* a transfer came back NO_DEVICE: DEV_GONE is on its way */
+    /* The stick is going away: a transfer came back NO_DEVICE, or the host
+       refused a submit. Nothing is posted after that; DEV_GONE tears down. */
+    volatile bool lost;
+    int64_t lost_us;
     ls_ncm_params_t ntb;
     uint16_t tx_seq;
     int64_t seen_us; /* last time a Huawei device was on the port */
@@ -263,6 +267,27 @@ static void ep_sync(lte_t *s, uint8_t ep)
     if (e != ESP_OK) ESP_LOGW(TAG, "CLEAR_FEATURE(0x%02x): %s", ep, esp_err_to_name(e));
 }
 
+/* Submits t. While a stick is being unplugged its transfers can come back
+   with plain errors before DEV_GONE arrives, and reposting them makes the
+   host refuse (and log) every one: the first refusal marks the device as
+   going away and stops all posting. A refused transfer is not in flight,
+   so the caller's busy flag stays false and teardown frees it. */
+static void mark_lost(lte_t *s)
+{
+    if (!s->lost) {
+        s->lost_us = now_us();
+        s->lost = true;
+    }
+}
+
+static bool submit(lte_t *s, usb_transfer_t *t)
+{
+    const esp_err_t e = usb_host_transfer_submit(t);
+    if (e == ESP_OK) return true;
+    if (e == ESP_ERR_INVALID_STATE || e == ESP_ERR_NOT_FOUND) mark_lost(s);
+    return false;
+}
+
 /* --------------------------------------------------------------- AT side */
 
 static void at_rx_cb(usb_transfer_t *t);
@@ -271,14 +296,14 @@ static void at_rx_post(lte_t *s)
 {
     if (!s->at_rx || s->at_rx_busy || s->tearing_down || s->lost || !s->at_claimed) return;
     s->at_rx->num_bytes = AT_RX_SIZE;
-    s->at_rx_busy = usb_host_transfer_submit(s->at_rx) == ESP_OK;
+    s->at_rx_busy = submit(s, s->at_rx);
 }
 
 static void at_rx_cb(usb_transfer_t *t)
 {
     lte_t *s = t->context;
     s->at_rx_busy = false;
-    if (t->status == USB_TRANSFER_STATUS_NO_DEVICE) s->lost = true;
+    if (t->status == USB_TRANSFER_STATUS_NO_DEVICE) mark_lost(s);
     if (t->status == USB_TRANSFER_STATUS_COMPLETED) {
         if (t->actual_num_bytes > 0) ls_at_feed(&s->at, t->data_buffer, t->actual_num_bytes);
         /* Straight back: a gap without a posted IN loses what the stick
@@ -339,7 +364,7 @@ static bool at_send(lte_t *s, const char *cmd, uint32_t ms, owner_t owner, speci
     s->cmd_step = s->step;
     s->cmd_special = sp;
     s->at_deadline = now_us() + (int64_t)ms * 1000;
-    s->at_tx_busy = usb_host_transfer_submit(s->at_tx) == ESP_OK;
+    s->at_tx_busy = submit(s, s->at_tx);
     if (!s->at_tx_busy) ls_at_abort(&s->at, LS_AT_RES_IO);
     return true;
 }
@@ -367,7 +392,7 @@ static void rx_post(lte_t *s, int i)
 {
     if (!s->rx[i] || s->rx_busy[i] || s->tearing_down || s->lost || !s->ncm_claimed) return;
     s->rx[i]->num_bytes = s->rx[i]->data_buffer_size;
-    s->rx_busy[i] = usb_host_transfer_submit(s->rx[i]) == ESP_OK;
+    s->rx_busy[i] = submit(s, s->rx[i]);
 }
 
 static void rx_cb(usb_transfer_t *t)
@@ -375,7 +400,7 @@ static void rx_cb(usb_transfer_t *t)
     lte_t *s = t->context;
     const int i = t == s->rx[1];
     s->rx_busy[i] = false;
-    if (t->status == USB_TRANSFER_STATUS_NO_DEVICE) s->lost = true;
+    if (t->status == USB_TRANSFER_STATUS_NO_DEVICE) mark_lost(s);
     if (t->status != USB_TRANSFER_STATUS_COMPLETED) return;
     if (t->actual_num_bytes > 0) {
         ls_ncm_err_t err;
@@ -404,14 +429,14 @@ static void intr_post(lte_t *s)
 {
     if (!s->intr || s->intr_busy || s->tearing_down || s->lost || !s->ncm_claimed) return;
     s->intr->num_bytes = s->ncm_int_mps;
-    s->intr_busy = usb_host_transfer_submit(s->intr) == ESP_OK;
+    s->intr_busy = submit(s, s->intr);
 }
 
 static void intr_cb(usb_transfer_t *t)
 {
     lte_t *s = t->context;
     s->intr_busy = false;
-    if (t->status == USB_TRANSFER_STATUS_NO_DEVICE) s->lost = true;
+    if (t->status == USB_TRANSFER_STATUS_NO_DEVICE) mark_lost(s);
     if (t->status != USB_TRANSFER_STATUS_COMPLETED) return;
     const uint8_t *b = t->data_buffer;
     if (t->actual_num_bytes >= 8 && b[0] == 0xa1) {
@@ -444,7 +469,7 @@ static esp_err_t lte_transmit(void *h, void *buffer, size_t len)
                                       s->tx_seq++, buffer, len);
         if (n) {
             t->num_bytes = n;
-            rc = usb_host_transfer_submit(t);
+            rc = submit(s, t) ? ESP_OK : ESP_FAIL;
         }
         if (rc != ESP_OK) {
             taskENTER_CRITICAL(&s_lock);
@@ -665,10 +690,10 @@ static void teardown(lte_t *s, const char *why)
                             s->ncm_claimed ? s->ncm_int : 0 };
     /* A stick that is gone returns every transfer by itself, and its
        endpoints refuse halt and flush. */
-    if (!s->gone && !s->lost) stop_eps(s, eps, sizeof(eps));
+    if (!s->gone) stop_eps(s, eps, sizeof(eps));
     const int64_t end = now_us() + 1500000;
     while (!all_idle(s) && now_us() < end) usb_host_client_handle_events(s->client, pdMS_TO_TICKS(10));
-    if (!s->gone && !s->lost)
+    if (!s->gone)
         for (size_t i = 0; i < sizeof(eps); i++)
             if (eps[i]) usb_host_endpoint_clear(s->dev, eps[i]);
     if (s->at_claimed) usb_host_interface_release(s->client, s->dev, s->at_itf);
@@ -1211,6 +1236,12 @@ static void note_ip(lte_t *s)
 static void tick(lte_t *s)
 {
     if (s->gone) teardown(s, "device gone");
+    /* Refused transfers without a DEV_GONE behind them: the stick is
+       still enumerated but wedged. Let go and attach it afresh. */
+    if (s->dev && s->lost && !s->gone && now_us() - s->lost_us > LOST_WAIT_US) {
+        teardown(s, "transfers refused, no DEV_GONE");
+        s->scan_existing = true;
+    }
     while (s->new_n) {
         const uint8_t a = s->new_addr[--s->new_n];
         new_device(s, a);
