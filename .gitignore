@@ -38,6 +38,7 @@ serial*.txt
 !/docs/T_DISPLAY_P4_USB_POWER.md
 !/docs/FIELD_LABS.md
 !/docs/POCSAG_NATIVE_STREAM.md
+!/docs/LTE_USB.md
 !/docs/LR2021_IQ_PROBE.md
 !/docs/LR2021_IQ_TX.md
 !/docs/LR2021_IQ_TX_VALIDATION.md

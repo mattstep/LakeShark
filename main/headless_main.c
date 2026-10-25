@@ -105,6 +105,9 @@
 #include "tui/ls_compass_live.h"
 #include "tui/ls_df_sources.h"
 #include "ls_net.h"
+#if CONFIG_LS_LTE
+#include "ls_lte.h"
+#endif
 
 static const char *TAG = "headless";
 
@@ -395,7 +398,14 @@ static void settings_task(void *arg)
                        switch only says so here. */
                     if (!usb_absent_notice_wanted(rtl_adapter_port_attached())) {
                         /* quiet */
-                    } else if (!LS_HAS_VBUS_CTRL) {
+                    }
+#if CONFIG_LS_LTE
+                    else if (ls_lte_has_device()) {
+                        /* The port holds the LTE stick, not a missing SDR:
+                           no advice, and no power cycle under the modem. */
+                    }
+#endif
+                    else if (!LS_HAS_VBUS_CTRL) {
                         ESP_LOGW(TAG, "SDR not enumerated for %d s - replug the "
                                       "dongle", SDR_ABSENT_POWER_S);
                         absent_told = true;
@@ -3165,6 +3175,9 @@ static bool console_start(bool full)
     esp_console_register_help_command();
     uat_console_register();
     if (full) ls_net_console_register();
+#if CONFIG_LS_LTE
+    if (full) ls_lte_console_register();
+#endif
     if (full) {
         for (size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++) {
             esp_err_t rerr = esp_console_cmd_register(&cmds[i]);
@@ -3510,6 +3523,16 @@ void app_main(void)
 #endif
     ls_mesh_boot();
     lakeshark_backend_start();
+#if CONFIG_LS_LTE && LS_HAS_USB_SDR
+    {
+        /* After the USB host is installed (backend start). Settings are
+           read here, on the boot task; the lte task never touches NVS. */
+        ls_lte_config_t lte_cfg;
+        ls_lte_settings_load(&lte_cfg);
+        esp_err_t le = ls_lte_start(&lte_cfg);
+        if (le != ESP_OK) ESP_LOGE(TAG, "LTE: %s", esp_err_to_name(le));
+    }
+#endif
     ls_drone_watch_start();
 
 #if LS_HAS_RF_SWITCH

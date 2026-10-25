@@ -161,6 +161,19 @@ menu "LakeShark"
         default n
         help
             Enabling this option will initialize the SD card, so the SD card needs to be inserted into the slot. Additionally, if using the Video Player example, an MJPEG format video must be saved on the SD card.
+
+    config LS_LTE
+        bool "USB LTE stick (Huawei CDC-NCM, e.g. MS2372h)"
+        depends on !LS_LR2021_ONLY
+        default n
+        help
+            Drives a Huawei LTE stick on the USB host port: switches it out
+            of its mass-storage mode, registers and dials over its AT port,
+            and brings up its NCM data interface as the esp_netif "LTE"
+            (route priority below the Wi-Fi station). Console 'lte'; see
+            docs/LTE_USB.md. Costs about 8 KB of internal RAM while a stick
+            is attached (the task stack and transfer bookkeeping); the NTB
+            buffers are in PSRAM.
 endmenu
 
 config LS_EXAMPLE_APP

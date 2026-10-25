@@ -1673,6 +1673,11 @@ ls_add_test(test_usb_port_cycle
 # and leaves an empty port alone.
 ls_add_test(test_usb_boot_retry
     ${FW}/components/lakeshark/radio/usb_boot_retry.c)
+# USB LTE stick: NTB16 framing and the AT channel parser.
+ls_add_test(test_ncm ${FW}/components/lslte/ls_ncm.c)
+target_include_directories(test_ncm PRIVATE ${FW}/components/lslte/include)
+ls_add_test(test_lte_at ${FW}/components/lslte/ls_lte_at.c)
+target_include_directories(test_lte_at PRIVATE ${FW}/components/lslte/include)
 # FM's radio open bounded for io, lifted by an endpoint change.
 ls_add_test(test_radio_open_retry
     ${FW}/components/lakeshark/radio/radio_open_retry.c)
