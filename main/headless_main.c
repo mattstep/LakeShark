@@ -104,6 +104,7 @@
 #include "tui/ls_field.h"
 #include "tui/ls_compass_live.h"
 #include "tui/ls_df_sources.h"
+#include "ls_net.h"
 
 static const char *TAG = "headless";
 
@@ -3163,6 +3164,7 @@ static bool console_start(bool full)
     };
     esp_console_register_help_command();
     uat_console_register();
+    if (full) ls_net_console_register();
     if (full) {
         for (size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++) {
             esp_err_t rerr = esp_console_cmd_register(&cmds[i]);
@@ -3289,6 +3291,14 @@ void app_main(void)
     if (nvs_worker_err != ESP_OK)
         ESP_LOGE(TAG, "NVS dispatcher init failed: %s",
                  esp_err_to_name(nvs_worker_err));
+
+    {
+        /* Read here, on the boot task, so the event handlers that apply it
+           never touch flash. */
+        char prefer[LS_NET_PREFER_MAX];
+        ls_net_prefer_load(prefer, sizeof(prefer));
+        ls_net_prefer_boot(prefer);
+    }
 
 #if LS_HAS_CARTOCORE
     extern void ls_cartocore_boot_init(void);
