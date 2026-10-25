@@ -51,6 +51,9 @@
 #include "esp_hosted.h"
 #include "ble_link.h"
 #include "ls_wifi.h"
+#if CONFIG_LS_ETH
+#include "ls_eth.h"
+#endif
 #if CONFIG_LS_BLE_HEAD
 #include "ble_hci_rx_guard.h"
 #endif
@@ -520,6 +523,29 @@ static bool hl_mode_index_by_name(const char *name, int *out)
     return true;
 }
 
+/* GPIO35 is the BOOT button and RMII TXD1. With Ethernet built in and its
+   setting on, the EMAC has it and the button is not configured or polled;
+   a start that fails hands it back (see app_main). Read once on the boot
+   task, before gpio_init, since the pin is configured there. */
+#if CONFIG_LS_ETH
+static bool s_eth_wanted;
+#define BOOT_BTN_ENABLED (!s_eth_wanted)
+#else
+#define BOOT_BTN_ENABLED true
+#endif
+
+static void boot_btn_gpio_init(void)
+{
+    gpio_config_t btn = {
+        .pin_bit_mask = 1ULL << BOOT_BTN_GPIO,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&btn);
+}
+
 static void boot_btn_task(void *arg)
 {
     (void)arg;
@@ -572,14 +598,8 @@ static void gpio_init(void)
     gpio_set_level(PA_CTRL_GPIO, 1);
 #endif
 
-    gpio_config_t btn = {
-        .pin_bit_mask = 1ULL << BOOT_BTN_GPIO,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&btn);
+    /* A pull-up on TXD1 would fight the EMAC driving it. */
+    if (BOOT_BTN_ENABLED) boot_btn_gpio_init();
 }
 
 static int cmd_p2(int argc,char **argv)
@@ -3041,6 +3061,10 @@ static bool console_start(bool full)
         { .command = "fm",     .help = "FM sub-mode (hops into FM)",
           .hint = "listen|scan|pocsag|wfm|am|acars|flex|same|aprs|ais", .func = &cmd_fm },
         { .command = "wifi", .help = "Saved Wi-Fi networks; wifi add \"My Net\" pass", .func = &cmd_wifi },
+#if CONFIG_LS_ETH
+        { .command = "eth", .help = "Wired Ethernet status; 'eth on|off' at next boot (on takes the BOOT button: GPIO35 is RMII TXD1)",
+          .hint = "[status|on|off]", .func = &ls_eth_command },
+#endif
         { .command = "vol",    .help = "Volume 0-100 (or +n / -n)", .hint = "<n|+n|-n>",
           .func = &cmd_vol },
         { .command = "freq",   .help = "Tune the current mode", .hint = "<MHz>",
@@ -3239,6 +3263,9 @@ void app_main(void)
     ls_cartocore_boot_init();
 #endif
 
+#if CONFIG_LS_ETH
+    s_eth_wanted = ls_eth_setting_load();
+#endif
     gpio_init();
 
     /* Before storage, the codec, USB host or the co-processor: on a
@@ -3339,8 +3366,9 @@ void app_main(void)
 
     ESP_LOGI(TAG, "LakeShark radio-core boot (%s)",
              LS_BOARD_NAME);
-    ESP_LOGI(TAG, "BOOT button (GPIO%d) cycles P25 -> ADS-B -> FM",
-             (int)BOOT_BTN_GPIO);
+    if (BOOT_BTN_ENABLED)
+        ESP_LOGI(TAG, "BOOT button (GPIO%d) cycles P25 -> ADS-B -> FM",
+                 (int)BOOT_BTN_GPIO);
     if (LS_HAS_VBUS_CTRL) {
         ESP_LOGI(TAG, "USB host VBUS switch on GPIO%d", (int)USB_VBUS_GPIO);
     } else {
@@ -3429,6 +3457,26 @@ void app_main(void)
         }
     }
 
+#if CONFIG_LS_ETH
+    /* Here, with Wi-Fi, for the same reason: the EMAC's DMA rings are
+       internal RAM and USB enumeration has not fragmented it yet. */
+    {
+        const ls_eth_config_t eth_cfg = { .enabled = s_eth_wanted };
+        const esp_err_t ee = ls_eth_start(&eth_cfg);
+        if (s_eth_wanted && ee != ESP_OK) {
+            /* The teardown returned GPIO35 to GPIO; a board with no cable
+               fitted still has a PHY, so this is a fault, not a choice. */
+            ESP_LOGW(TAG, "Ethernet did not start (%s) - BOOT button back on GPIO%d",
+                     esp_err_to_name(ee), (int)BOOT_BTN_GPIO);
+            s_eth_wanted = false;
+            boot_btn_gpio_init();
+        } else if (s_eth_wanted) {
+            ESP_LOGW(TAG, "GPIO%d is RMII TXD1: BOOT button off ('eth off' + reboot restores it)",
+                     (int)BOOT_BTN_GPIO);
+        }
+    }
+#endif
+
     ls_safe_stage(LS_SAFE_STAGE_BACKEND);
     compact_ui_boot_progress(52, "RADIOS");
 #if LS_HAS_RF_SWITCH
@@ -3492,8 +3540,9 @@ void app_main(void)
        "give it a boot sound" actually meant. The splash also reads the
        boot-sound setting, which this call never did. */
 
-    xTaskCreateStatic(boot_btn_task, "boot_btn", sizeof(s_boot_btn_stack),
-                      NULL, 5, s_boot_btn_stack, &s_boot_btn_tcb);
+    if (BOOT_BTN_ENABLED)
+        xTaskCreateStatic(boot_btn_task, "boot_btn", sizeof(s_boot_btn_stack),
+                          NULL, 5, s_boot_btn_stack, &s_boot_btn_tcb);
     if(!cell_performance_active())xTaskCreateStatic(settings_task, "settings", SETTINGS_STACK_WORDS, NULL, 2,
                       s_settings_stack, &s_settings_tcb);
 
