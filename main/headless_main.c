@@ -662,6 +662,58 @@ static int cmd_hackrf(int argc, char **argv)
     return 0;
 }
 
+#if LS_HAS_USB_SDR
+/* usb_host.c */
+int usb_host_dump_devices(void);
+int usb_host_modeswitch(const uint8_t *cbw, size_t len);
+int usb_host_at(int itf, const char *cmd);
+static int cmd_usb(int argc, char **argv)
+{
+    if (argc >= 2 && !strcmp(argv[1], "at")) {
+        int itf = 2, a = 2;
+        if (argc >= 4 && !strcmp(argv[2], "-i")) { itf = atoi(argv[3]); a = 4; }
+        if (a >= argc) { printf("usage: usb at [-i <itf>] <command>\n"); return 1; }
+        /* The console splits on spaces; put the command back together. */
+        char cmd[256] = "";
+        for (int i = a; i < argc; i++) {
+            if (i > a) strlcat(cmd, " ", sizeof(cmd));
+            strlcat(cmd, argv[i], sizeof(cmd));
+        }
+        /* The console eats double quotes; a single quote stands in for one. */
+        for (char *q = cmd; *q; q++) if (*q == '\'') *q = '"';
+        if (usb_host_at(itf, cmd) < 0) printf("USB host is not running\n");
+        return 0;
+    }
+    if (argc >= 2 && !strcmp(argv[1], "switch")) {
+        /* usb_modeswitch's HuaweiNewMode message, unless one is given. */
+        const char *hex = argc >= 3 ? argv[2]
+            : "55534243123456780000000000000a11062000000000000100000000000000";
+        uint8_t cbw[31];
+        size_t len = strlen(hex) / 2;
+        if (strlen(hex) % 2 || len < 1 || len > sizeof(cbw)) {
+            printf("the CBW is 1 to 31 bytes of hex\n");
+            return 1;
+        }
+        for (size_t i = 0; i < len; i++) {
+            char b[3] = { hex[2 * i], hex[2 * i + 1], 0 };
+            char *end;
+            cbw[i] = (uint8_t)strtoul(b, &end, 16);
+            if (*end) { printf("not hex: %s\n", b); return 1; }
+        }
+        if (usb_host_modeswitch(cbw, len) < 0) printf("USB host is not running\n");
+        return 0;
+    }
+    if (argc >= 2 && strcmp(argv[1], "info")) {
+        printf("usage: usb [info|switch [hex]|at [-i <itf>] <command>]\n");
+        return 1;
+    }
+    const int n = usb_host_dump_devices();
+    if (n < 0) printf("USB host is not running\n");
+    else printf("%d device(s) on the USB host port\n", n);
+    return 0;
+}
+#endif /* LS_HAS_USB_SDR */
+
 static int cmd_rtl(int argc, char **argv)
 {
     if (argc >= 2 && !strcmp(argv[1], "detach")) {
@@ -3036,6 +3088,10 @@ static bool console_start(bool full)
           .func = &cmd_rtl },
         { .command = "hackrf", .help = "HackRF: rates, gain, levels either side of the decimator; 'hackrf dump' prints one read's samples, 'hackrf snap' the last four seconds; 'hackrf ppm <n>' sets the reference correction",
           .func = &cmd_hackrf },
+#if LS_HAS_USB_SDR
+        { .command = "usb",    .help = "List what is on the USB host port: descriptors of every configuration, interface and endpoint, and strings. 'usb switch [hex]' sends a Huawei mode switch, 'usb at [-i <itf>] <cmd>' talks AT to its serial port (write ' for a double quote)",
+          .hint = "[info|switch [hex]|at [-i <itf>] <cmd>]", .func = &cmd_usb },
+#endif
         { .command = "mode",   .help = "Switch mode", .hint = "p25|adsb|fm|rec|next",
           .func = &cmd_mode },
         { .command = "fm",     .help = "FM sub-mode (hops into FM)",
