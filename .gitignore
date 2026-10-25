@@ -43,6 +43,7 @@ serial*.txt
 !/docs/LR2021_IQ_TX_VALIDATION.md
 !/docs/MIX_RF.md
 !/docs/UI_CONTROLS.md
+!/docs/BC.md
 !/docs/HACKRF_BRINGUP.md
 !/docs/TDP4_RC_CHECKLIST.md
 !/docs/P25_PHASE2.md

@@ -168,3 +168,12 @@ config LS_EXAMPLE_APP
     default n
     help
         Build and register the small shared-widget tap counter example.
+
+config LS_BC
+    bool "bc calculator (console command and BC app)"
+    default y
+    help
+        A bc-style calculator over double precision: the 'bc' console
+        command (one expression, or an interactive bc> session) and the BC
+        app in SYSTEM. Variables, scale/ibase/obase and the -l maths
+        functions; no user functions or loops. See docs/BC.md. About 16 KB.
