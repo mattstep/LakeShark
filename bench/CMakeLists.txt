@@ -294,6 +294,23 @@ target_include_directories(test_ws PRIVATE ${FW}/components/apps/tui)
 ls_add_test(test_mdns ${FW}/components/apps/tui/ls_mdns.c)
 target_include_directories(test_mdns PRIVATE ${FW}/components/apps/tui)
 
+# The SSH app's key encoder and its terminal emulator (vendored libtmt).
+ls_add_test(test_ssh_term ${FW}/components/apps/tui/ls_ssh_keys.c
+    ${FW}/components/lsssh/third_party/libtmt/tmt.c)
+target_include_directories(test_ssh_term PRIVATE
+    ${FW}/components/apps/tui ${FW}/components/apps/tui/tuilib
+    ${FW}/components/lsssh/third_party/libtmt)
+
+# libssh's Ed25519 API on MeshCore's orlp/ed25519 (RFC 8032 vectors). The
+# ed25519 sources get -fno-sanitize=shift under LS_SANITIZE (MESH_HOST_ED below).
+set(LS_ED25519_DIR ${FW}/components/meshcore/upstream/ed25519)
+ls_add_test(test_ed25519_adapter ${FW}/components/lsssh/ls_ed25519_adapter.c
+    ${LS_ED25519_DIR}/fe.c ${LS_ED25519_DIR}/ge.c ${LS_ED25519_DIR}/sc.c
+    ${LS_ED25519_DIR}/keypair.c ${LS_ED25519_DIR}/sign.c
+    ${LS_ED25519_DIR}/verify.c ${LS_ED25519_DIR}/sha512.c)
+target_include_directories(test_ed25519_adapter BEFORE PRIVATE
+    ${FW}/bench/tests/ed25519_shims ${LS_ED25519_DIR})
+
 # Optional private tests, if this tree has any. The file names what it
 # registers; this line does not, so it is safe to publish either way.
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/private.cmake)

@@ -4,15 +4,16 @@
 #include <string.h>
 
 /* Preserve the user's preferred face.  The large face is intentionally
-   limited to the launcher, radio hub and settings: tool layouts depend on
-   the original grid density. */
+   limited to the launcher, radio hub, settings and the SSH terminal: tool
+   layouts depend on the original grid density, while a terminal resizes its
+   pty to whatever grid it gets, so the user's face applies there. */
 static inline int ls_tui_font_for_view(int preferred, const char *screen,
                                      bool full_waterfall)
 {
     if (preferred != 2) return preferred;
     if (full_waterfall) return 0;
     if (screen && (!strcmp(screen, "HOME") || !strcmp(screen, "RADIOS") ||
-                   !strcmp(screen, "SET")))
+                   !strcmp(screen, "SET") || !strcmp(screen, "SSH")))
         return preferred;
     return 0;
 }

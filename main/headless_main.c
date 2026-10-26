@@ -105,6 +105,9 @@
 #if defined(CONFIG_LS_BC) && CONFIG_LS_BC
 #include "ls_bc_cmd.h"
 #endif
+#if CONFIG_LS_SSH_CLIENT
+#include "ls_ssh.h"
+#endif
 
 #include "tui/ls_tui_screen.h"
 #include "tui/ls_field.h"
@@ -3250,6 +3253,9 @@ static bool console_start(bool full)
     if (full) ls_lte_console_register();
 #endif
     if (full) {
+#if CONFIG_LS_SSH_CLIENT
+        ls_ssh_console_register();
+#endif
         for (size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++) {
             esp_err_t rerr = esp_console_cmd_register(&cmds[i]);
             if (rerr != ESP_OK) {

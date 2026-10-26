@@ -49,6 +49,10 @@ if(CONFIG_LS_BC)
     # The BC app (screens/ext/scr_bc.c): the calculator engine.
     idf_component_optional_requires(PRIVATE lsbc)
 endif()
+if(CONFIG_LS_SSH_CLIENT)
+    # The SSH app (screens/ext/scr_ssh.c): session engine and terminal emulator.
+    idf_component_optional_requires(PRIVATE lsssh)
+endif()
 
 # -Wformat and the two pointer checks are turned back ON here, against the
 # project-wide -Wno-format in the root CMakeLists.  That flag is there for

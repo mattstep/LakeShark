@@ -46,6 +46,9 @@ static int group_of(const ls_app_t *a)
         !strcmp(a->id, "detector") || !strcmp(a->id, "sweep") || !strcmp(a->id, "compass") || !strcmp(a->id, "rec")) return 1;
     if (!strcmp(a->id, "set") || !strcmp(a->id, "diag") || !strcmp(a->id, "radios") || !strcmp(a->id, "link") ||
         !strcmp(a->id, "terminal") || !strcmp(a->id, "bc") || !strcmp(a->id, "update")) return 2;
+#if defined(CONFIG_LS_SSH_CLIENT) && CONFIG_LS_SSH_CLIENT
+    if (!strcmp(a->id, "ssh")) return 2;
+#endif
     return 0;
 }
 

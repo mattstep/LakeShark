@@ -93,6 +93,19 @@ also opens the touch keyboard, tapping the output scrolls it, and tapping the
 bottom row shows or hides the keypad. Variables, `scale` and `last` stay while
 the board is on. The same calculator is `bc` on the serial console.
 
+SSH is in SYSTEM, in builds made with `boards/ssh.defaults`. HOSTS lists
+pinned servers; Enter connects as the user last used there, NEW asks for
+`user@host[:port]`, KEY shows the board's public key (KEYGEN makes one) and
+FORGET (pressed twice) drops a host. A first connection shows the server's
+SHA256 fingerprint: T or TRUST pins it, C or CANCEL does not; a changed key is
+refused, with FORGET to clear it. In the terminal every key goes to the remote
+shell, Esc and Tab included. CTRL, ALT and FN are sticky: press one, then the
+key (CTRL C, CTRL D, CTRL Z, CTRL L; pressing it again cancels). FN Q
+disconnects, FN with the arrows sends Page Up/Down and Home/End, FN Backspace
+Delete, FN Tab back-tab and FN 1-0 F1-F10. The real F-keys keep their global
+meaning, so F1-F8 leave the app and close the session. Tapping the status row
+shows or hides a touch bar with KEYS, CTRL, ESC, TAB, UP, DOWN, ENTER and DISC.
+
 CELL WATCH is in RADIO. BAND/B selects a band, LEARN/L takes three baseline
 passes, LOAD/D loads a baseline, and SITE/G chooses GPS or LOCAL. LTE/E searches
 for LTE carriers. HIGH RATE/P offers a restart into the high-rate capture mode.

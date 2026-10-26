@@ -219,3 +219,11 @@ config LS_BC
         command (one expression, or an interactive bc> session) and the BC
         app in SYSTEM. Variables, scale/ibase/obase and the -l maths
         functions; no user functions or loops. See docs/BC.md. About 16 KB.
+
+config LS_SSH_CLIENT
+    bool "SSH client (libssh, Ed25519 keys)"
+    default n
+    help
+        Build the 'ssh' console command: on-device Ed25519 key generation,
+        trust-on-first-use host keys kept in NVS, and remote command execution
+        over the C6 Wi-Fi link. Adds about 250 KB to the image.

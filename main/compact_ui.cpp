@@ -1192,6 +1192,10 @@ static bool tui_session(void)
     extern const ls_tui_screen_t ls_scr_bc;
     extern const ls_app_doc_t ls_doc_bc;
 #endif
+#if defined(CONFIG_LS_SSH_CLIENT) && CONFIG_LS_SSH_CLIENT
+    extern const ls_tui_screen_t ls_scr_ssh;
+    extern const ls_app_doc_t ls_doc_ssh;
+#endif
     if (ls_app_count() == 0) {
         ls_wireless_set_active(false);
         /* Publish the named values before anything can read them: a user app
@@ -1253,6 +1257,10 @@ static bool tui_session(void)
 #if defined(CONFIG_LS_BC) && CONFIG_LS_BC
             { "bc", "BC", "calculator", LS_ICON_TERMINAL, TUI_YELLOW,
               LS_APP_EXTRA, &ls_scr_bc, nullptr, &ls_doc_bc },
+#endif
+#if defined(CONFIG_LS_SSH_CLIENT) && CONFIG_LS_SSH_CLIENT
+            { "ssh", "SSH", "remote shell", LS_ICON_TERMINAL, TUI_CYAN,
+              LS_APP_EXTRA, &ls_scr_ssh, nullptr, &ls_doc_ssh },
 #endif
             { "update", "UPDATE", "firmware", LS_ICON_UPDATE, TUI_CYAN,
               LS_APP_EXTRA, &ls_scr_update, nullptr, &ls_doc_update },

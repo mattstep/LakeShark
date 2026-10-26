@@ -15,6 +15,9 @@ set(LS_PRIVATE_SRC "")
 if(CONFIG_LS_BC)
     list(APPEND LS_PRIVATE_SRC ls_bc_cmd.c)
 endif()
+if(CONFIG_LS_SSH_CLIENT)
+    list(APPEND LS_PRIVATE_SRC ls_ssh.c)
+endif()
 if(EXISTS ${CMAKE_CURRENT_LIST_DIR}/private_console.cpp)
     list(APPEND LS_PRIVATE_SRC private_console.cpp)
 endif()
@@ -24,7 +27,7 @@ idf_component_register(
     INCLUDE_DIRS .
     PRIV_REQUIRES console esp_driver_uart esp_driver_gpio esp_timer lakeshark apps meshcore espressif__esp_hosted
                   esp_http_client app_update esp_app_format mbedtls nvs_flash spi_flash bt lseth lsnet lslte ${LS_BLE_REQ}
-                  lsbc)
+                  lsssh lsbc)
 
 # The apps component's radio picker reads the wireless snapshot, and the
 # headless main code does not, so the linker would pass main before
