@@ -1,0 +1,5 @@
+# Integration image for the user's T-Display P4: one 9 MB factory slot
+# (boards/partitions_16m.csv) because SSH client + LTE + Ethernet + bc
+# do not fit a 4.5 MB OTA slot. Storage stays at 0x910000 and NVS at
+# 0x9000, so a full install keeps settings and the storage image.
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="boards/partitions_16m.csv"
