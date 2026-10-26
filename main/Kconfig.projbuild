@@ -156,6 +156,25 @@ menu "LakeShark"
             Off, telnet and the web screen still work; the T-Display builds
             turn it off to fit their app slot.
 
+    config LS_ETH
+        bool "Wired Ethernet (T-Display-P4 IP101 PHY)"
+        depends on LS_BOARD_T_DISPLAY_P4 && ETH_USE_ESP32_EMAC
+        default n
+        help
+            Bring up the board's RJ45: the IP101GRI PHY on the P4's internal
+            EMAC over RMII, as a DHCP network interface that outranks the
+            Wi-Fi station for the default route. See docs/ETHERNET.md and
+            boards/eth.defaults, which also shrinks the EMAC DMA rings.
+
+            GPIO35 is both the BOOT button and RMII TXD1. With this on and
+            the `eth` setting on (the default), the BOOT button does not
+            cycle modes. `eth off` or SET > DEVICE > Ethernet gives it back,
+            at once.
+
+            Costs about 11 KB of internal RAM with the eth.defaults rings:
+            6.75 KB of DMA buffers and descriptors, the receive task's 3 KB
+            stack and TCB, and 0.5 KB static (the EMAC ISR is in IRAM).
+
     config EXAMPLE_ENABLE_SD_CARD
         bool "Enable SD Card"
         default n

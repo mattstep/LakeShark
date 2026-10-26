@@ -69,6 +69,11 @@ Esc on the first page goes back to HOME.
 
 - **Keyboard light**: the keyboard backlight.
 - **Keyboard dim**: "with screen" dims the keyboard light with the screen.
+- **Ethernet** (only in builds with wired Ethernet): `On (BOOT key off)` or
+  `Off (BOOT key on)`. GPIO35 is both the BOOT button and the Ethernet
+  TXD1 line, so only one of them works at a time. The change applies at
+  once and is kept. `On, failed` means Ethernet could not start, and the
+  BOOT key stays on. See docs/ETHERNET.md.
 - **USB autoreboot**: on or off.
 - **Update**: shows the update state and opens UPDATE.
 - **Check for updates**: Daily or Off. Off stops background checks; CHECK in

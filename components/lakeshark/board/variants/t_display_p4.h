@@ -68,9 +68,33 @@
 #define LS_BOARD_SDIO_D2_GPIO    41
 #define LS_BOARD_SDIO_D3_GPIO    42
 
-/* Boot button: 35, matching the shared default.  Note the vendor header also
-   maps 35 as ip101::kRmiiTxd1 - the two are mutually exclusive, and Ethernet
-   is not something LakeShark brings up. */
+/* Boot button: 35, matching the shared default.  The vendor header also
+   maps 35 as ip101::kRmiiTxd1, so the two are mutually exclusive: a build
+   with CONFIG_LS_ETH and the `eth` setting on gives 35 to the EMAC and has
+   no BOOT button.  See docs/ETHERNET.md. */
+
+/* Wired Ethernet: IP101GRI on the P4's internal EMAC, RMII.  The 50 MHz
+   reference comes in on 50 (EMAC_CLK_EXT_IN; kRmiiClkOut = -1, so the P4
+   never drives it).  PHY reset is the expander's IO5
+   (LS_BOARD_XL_ETH_PHY_RST above), not a GPIO.
+     vendor lilygo_device_driver t_display_p4_config.h:
+       gpio::ip101  kPhyRst = -1, kRmiiRefClk = 50, kRmiiClkOut = -1,
+                    kRmiiMdc = 31, kRmiiMdio = 52, kRmiiTxEn = 49,
+                    kRmiiTxd0 = 34, kRmiiTxd1 = 35, kRmiiCrsDv = 28,
+                    kRmiiRxd0 = 29, kRmiiRxd1 = 30
+       device::ip101::kPhyAddress = 1
+   These match IDF's ETH_ESP32_EMAC_DEFAULT_CONFIG() for the P4 pin for pin,
+   but are spelled out so the board file, not the IDF version, owns them. */
+#define LS_BOARD_ETH_PHY_ADDR        1
+#define LS_BOARD_ETH_MDC_GPIO        31
+#define LS_BOARD_ETH_MDIO_GPIO       52
+#define LS_BOARD_ETH_REF_CLK_GPIO    50
+#define LS_BOARD_ETH_TX_EN_GPIO      49
+#define LS_BOARD_ETH_TXD0_GPIO       34
+#define LS_BOARD_ETH_TXD1_GPIO       35
+#define LS_BOARD_ETH_CRS_DV_GPIO     28
+#define LS_BOARD_ETH_RXD0_GPIO       29
+#define LS_BOARD_ETH_RXD1_GPIO       30
 
 /* ------------------------------------------------------------- display */
 

@@ -717,6 +717,12 @@ static const ls_i18n_pair_t UK[] = {
     { "Mountain", "Гірські штати" },
     { "Pacific", "Тихоокеанські" },
     { "tap again for a new password", "ще дотик: новий пароль" },
+#if CONFIG_LS_ETH
+    /* SET > DEVICE > Ethernet. "Ethernet" itself stays as written. */
+    { "Off (BOOT key on)", "Вимк (BOOT увімк)" },
+    { "On (BOOT key off)", "Увімк (BOOT вимк)" },
+    { "On, failed (BOOT key on)", "Увімк, збій (BOOT увімк)" },
+#endif
 
     /* ---- ADS-B composed lines ------------------------------------------- */
     { "FIT ALL %d%s", "ВМІСТИТИ %d%s" },
