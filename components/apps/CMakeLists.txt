@@ -45,6 +45,10 @@ if(CONFIG_LS_BOARD_T_DISPLAY_P4 OR CONFIG_LS_PANEL_RUNTIME)
     # CONFIG is available at registration time, not in IDF's early dependency scan.
     idf_component_optional_requires(PRIVATE cartocore console esp_timer mbedtls)
 endif()
+if(CONFIG_LS_BC)
+    # The BC app (screens/ext/scr_bc.c): the calculator engine.
+    idf_component_optional_requires(PRIVATE lsbc)
+endif()
 
 # -Wformat and the two pointer checks are turned back ON here, against the
 # project-wide -Wno-format in the root CMakeLists.  That flag is there for

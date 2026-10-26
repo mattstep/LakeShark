@@ -102,6 +102,9 @@
 #include "ls_version.h"
 #include "ls_cpu_busy.h"
 #include "ls_c6_update.h"
+#if defined(CONFIG_LS_BC) && CONFIG_LS_BC
+#include "ls_bc_cmd.h"
+#endif
 
 #include "tui/ls_tui_screen.h"
 #include "tui/ls_field.h"
@@ -3235,6 +3238,10 @@ static bool console_start(bool full)
           .hint = "<PING|FREQ|VOL|GAIN|DEMOD|...>", .func = &cmd_fl },
         { .command = "adsbdemo", .help = "Synthetic aircraft around home or the map centre, for testing",
           .hint = "<0-8>", .func = &cmd_adsbdemo },
+#if defined(CONFIG_LS_BC) && CONFIG_LS_BC
+        { .command = "bc", .help = "Calculator, bc syntax: 'bc 2^10', 'bc \"scale=2; 1/3\"', or 'bc' alone for a bc> session (docs/BC.md)",
+          .hint = "[expression]", .func = &ls_bc_command },
+#endif
     };
     esp_console_register_help_command();
     uat_console_register();

@@ -1780,6 +1780,9 @@ ls_add_test(test_ls_term
 target_include_directories(test_ls_term PRIVATE
     ${FW}/components/apps/tui)
 
+ls_add_test(test_bc ${FW}/components/lsbc/bc.c)
+target_include_directories(test_bc PRIVATE ${FW}/components/lsbc)
+
 ls_add_test(test_ls_term_runner ${FW}/components/apps/tui/ls_term_scroll.c)
 target_include_directories(test_ls_term_runner BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/term_shims

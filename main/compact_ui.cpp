@@ -1188,6 +1188,10 @@ static bool tui_session(void)
                                  ls_scr_files, ls_scr_experiments, ls_scr_terminal,
                                  ls_scr_update;
     extern const ls_app_doc_t ls_doc_tiles;
+#if defined(CONFIG_LS_BC) && CONFIG_LS_BC
+    extern const ls_tui_screen_t ls_scr_bc;
+    extern const ls_app_doc_t ls_doc_bc;
+#endif
     if (ls_app_count() == 0) {
         ls_wireless_set_active(false);
         /* Publish the named values before anything can read them: a user app
@@ -1246,6 +1250,10 @@ static bool tui_session(void)
               LS_APP_EXTRA, &ls_scr_diag, nullptr, &ls_doc_diag },
             { "terminal", "TERMINAL", "console", LS_ICON_TERMINAL, TUI_GREEN,
               LS_APP_EXTRA, &ls_scr_terminal, nullptr, &ls_doc_terminal },
+#if defined(CONFIG_LS_BC) && CONFIG_LS_BC
+            { "bc", "BC", "calculator", LS_ICON_TERMINAL, TUI_YELLOW,
+              LS_APP_EXTRA, &ls_scr_bc, nullptr, &ls_doc_bc },
+#endif
             { "update", "UPDATE", "firmware", LS_ICON_UPDATE, TUI_CYAN,
               LS_APP_EXTRA, &ls_scr_update, nullptr, &ls_doc_update },
             { "set",  "SET",  "display",   LS_ICON_GEAR,  TUI_BLUE,

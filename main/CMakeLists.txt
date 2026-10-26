@@ -12,6 +12,9 @@ endif()
 # Deleting the file is the whole removal -
 # compact_ui.cpp reaches it through __has_include and needs no edit.
 set(LS_PRIVATE_SRC "")
+if(CONFIG_LS_BC)
+    list(APPEND LS_PRIVATE_SRC ls_bc_cmd.c)
+endif()
 if(EXISTS ${CMAKE_CURRENT_LIST_DIR}/private_console.cpp)
     list(APPEND LS_PRIVATE_SRC private_console.cpp)
 endif()
@@ -20,7 +23,8 @@ idf_component_register(
     SRCS headless_main.c compact_ui.cpp sx1262_console.cpp ${LS_PRIVATE_SRC} ls_wifi.c ls_wifi_sta_core.c ls_wireless.c ls_survey_runtime.c ls_sweep_runtime.c ls_ota.c ls_p25_packs.c ls_c6_update.c ls_c6_core.c flipper_link.c flipper_link_telemetry.c flipper_link_aux.c ${LS_BLE_SRC} bsod.c ls_hosted_board.c panic_crumb.c cache_sync_lock.c console_lock.c console_fast.c
     INCLUDE_DIRS .
     PRIV_REQUIRES console esp_driver_uart esp_driver_gpio esp_timer lakeshark apps meshcore espressif__esp_hosted
-                  esp_http_client app_update esp_app_format mbedtls nvs_flash spi_flash bt lseth lsnet lslte ${LS_BLE_REQ})
+                  esp_http_client app_update esp_app_format mbedtls nvs_flash spi_flash bt lseth lsnet lslte ${LS_BLE_REQ}
+                  lsbc)
 
 # The apps component's radio picker reads the wireless snapshot, and the
 # headless main code does not, so the linker would pass main before
