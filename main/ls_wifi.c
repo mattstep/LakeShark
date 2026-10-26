@@ -14,6 +14,7 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
+#include "ls_net.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -701,6 +702,9 @@ static esp_err_t ensure_stack(void)
         esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
                                             &wifi_event_cb, NULL, NULL);
         s_events_bound = true;
+        /* The route policy needs the event loop this function made. */
+        esp_err_t ne = ls_net_init();
+        if (ne != ESP_OK) ESP_LOGW(TAG, "route policy: %s", esp_err_to_name(ne));
     }
     s_stack_up = true;
     return ESP_OK;

@@ -1,0 +1,7 @@
+# USB LTE stick overlay: add after the board defaults.
+#   -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/t_display_p4.defaults;boards/lte.defaults"
+CONFIG_LS_LTE=y
+# Per-interface DNS (CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF) is selected
+# for every build by LS_NET_DNS_PER_NETIF in main/Kconfig.projbuild.
+# CONFIG_LWIP_L2_TO_L3_COPY stays off: the driver copies each datagram out
+# of the NTB into its own buffer, which lwIP frees through free_rx_buffer.

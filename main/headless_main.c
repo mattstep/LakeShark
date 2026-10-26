@@ -107,6 +107,10 @@
 #include "tui/ls_field.h"
 #include "tui/ls_compass_live.h"
 #include "tui/ls_df_sources.h"
+#include "ls_net.h"
+#if CONFIG_LS_LTE
+#include "ls_lte.h"
+#endif
 
 static const char *TAG = "headless";
 
@@ -397,7 +401,14 @@ static void settings_task(void *arg)
                        switch only says so here. */
                     if (!usb_absent_notice_wanted(rtl_adapter_port_attached())) {
                         /* quiet */
-                    } else if (!LS_HAS_VBUS_CTRL) {
+                    }
+#if CONFIG_LS_LTE
+                    else if (ls_lte_has_device()) {
+                        /* The port holds the LTE stick, not a missing SDR:
+                           no advice, and no power cycle under the modem. */
+                    }
+#endif
+                    else if (!LS_HAS_VBUS_CTRL) {
                         ESP_LOGW(TAG, "SDR not enumerated for %d s - replug the "
                                       "dongle", SDR_ABSENT_POWER_S);
                         absent_told = true;
@@ -721,6 +732,58 @@ static int cmd_hackrf(int argc, char **argv)
     else ls_hackrf_print_status();
     return 0;
 }
+
+#if LS_HAS_USB_SDR
+/* usb_host.c */
+int usb_host_dump_devices(void);
+int usb_host_modeswitch(const uint8_t *cbw, size_t len);
+int usb_host_at(int itf, const char *cmd);
+static int cmd_usb(int argc, char **argv)
+{
+    if (argc >= 2 && !strcmp(argv[1], "at")) {
+        int itf = 2, a = 2;
+        if (argc >= 4 && !strcmp(argv[2], "-i")) { itf = atoi(argv[3]); a = 4; }
+        if (a >= argc) { printf("usage: usb at [-i <itf>] <command>\n"); return 1; }
+        /* The console splits on spaces; put the command back together. */
+        char cmd[256] = "";
+        for (int i = a; i < argc; i++) {
+            if (i > a) strlcat(cmd, " ", sizeof(cmd));
+            strlcat(cmd, argv[i], sizeof(cmd));
+        }
+        /* The console eats double quotes; a single quote stands in for one. */
+        for (char *q = cmd; *q; q++) if (*q == '\'') *q = '"';
+        if (usb_host_at(itf, cmd) < 0) printf("USB host is not running\n");
+        return 0;
+    }
+    if (argc >= 2 && !strcmp(argv[1], "switch")) {
+        /* usb_modeswitch's HuaweiNewMode message, unless one is given. */
+        const char *hex = argc >= 3 ? argv[2]
+            : "55534243123456780000000000000a11062000000000000100000000000000";
+        uint8_t cbw[31];
+        size_t len = strlen(hex) / 2;
+        if (strlen(hex) % 2 || len < 1 || len > sizeof(cbw)) {
+            printf("the CBW is 1 to 31 bytes of hex\n");
+            return 1;
+        }
+        for (size_t i = 0; i < len; i++) {
+            char b[3] = { hex[2 * i], hex[2 * i + 1], 0 };
+            char *end;
+            cbw[i] = (uint8_t)strtoul(b, &end, 16);
+            if (*end) { printf("not hex: %s\n", b); return 1; }
+        }
+        if (usb_host_modeswitch(cbw, len) < 0) printf("USB host is not running\n");
+        return 0;
+    }
+    if (argc >= 2 && strcmp(argv[1], "info")) {
+        printf("usage: usb [info|switch [hex]|at [-i <itf>] <command>]\n");
+        return 1;
+    }
+    const int n = usb_host_dump_devices();
+    if (n < 0) printf("USB host is not running\n");
+    else printf("%d device(s) on the USB host port\n", n);
+    return 0;
+}
+#endif /* LS_HAS_USB_SDR */
 
 static int cmd_rtl(int argc, char **argv)
 {
@@ -3096,6 +3159,10 @@ static bool console_start(bool full)
           .func = &cmd_rtl },
         { .command = "hackrf", .help = "HackRF: rates, gain, levels either side of the decimator; 'hackrf dump' prints one read's samples, 'hackrf snap' the last four seconds; 'hackrf ppm <n>' sets the reference correction",
           .func = &cmd_hackrf },
+#if LS_HAS_USB_SDR
+        { .command = "usb",    .help = "List what is on the USB host port: descriptors of every configuration, interface and endpoint, and strings. 'usb switch [hex]' sends a Huawei mode switch, 'usb at [-i <itf>] <cmd>' talks AT to its serial port (write ' for a double quote)",
+          .hint = "[info|switch [hex]|at [-i <itf>] <cmd>]", .func = &cmd_usb },
+#endif
         { .command = "mode",   .help = "Switch mode", .hint = "p25|adsb|fm|rec|next",
           .func = &cmd_mode },
         { .command = "fm",     .help = "FM sub-mode (hops into FM)",
@@ -3171,6 +3238,10 @@ static bool console_start(bool full)
     };
     esp_console_register_help_command();
     uat_console_register();
+    if (full) ls_net_console_register();
+#if CONFIG_LS_LTE
+    if (full) ls_lte_console_register();
+#endif
     if (full) {
         for (size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++) {
             esp_err_t rerr = esp_console_cmd_register(&cmds[i]);
@@ -3297,6 +3368,14 @@ void app_main(void)
     if (nvs_worker_err != ESP_OK)
         ESP_LOGE(TAG, "NVS dispatcher init failed: %s",
                  esp_err_to_name(nvs_worker_err));
+
+    {
+        /* Read here, on the boot task, so the event handlers that apply it
+           never touch flash. */
+        char prefer[LS_NET_PREFER_MAX];
+        ls_net_prefer_load(prefer, sizeof(prefer));
+        ls_net_prefer_boot(prefer);
+    }
 
 #if LS_HAS_CARTOCORE
     extern void ls_cartocore_boot_init(void);
@@ -3532,6 +3611,16 @@ void app_main(void)
 #endif
     ls_mesh_boot();
     lakeshark_backend_start();
+#if CONFIG_LS_LTE && LS_HAS_USB_SDR
+    {
+        /* After the USB host is installed (backend start). Settings are
+           read here, on the boot task; the lte task never touches NVS. */
+        ls_lte_config_t lte_cfg;
+        ls_lte_settings_load(&lte_cfg);
+        esp_err_t le = ls_lte_start(&lte_cfg);
+        if (le != ESP_OK) ESP_LOGE(TAG, "LTE: %s", esp_err_to_name(le));
+    }
+#endif
     ls_drone_watch_start();
 
 #if LS_HAS_RF_SWITCH
