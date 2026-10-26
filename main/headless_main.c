@@ -99,7 +99,7 @@
 #include "ls_version.h"
 #include "ls_cpu_busy.h"
 #include "ls_c6_update.h"
-#if CONFIG_LS_SSH
+#if CONFIG_LS_SSH_CLIENT
 #include "ls_ssh.h"
 #endif
 
@@ -3111,7 +3111,7 @@ static bool console_start(bool full)
     esp_console_register_help_command();
     uat_console_register();
     if (full) {
-#if CONFIG_LS_SSH
+#if CONFIG_LS_SSH_CLIENT
         ls_ssh_console_register();
 #endif
         for (size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++) {

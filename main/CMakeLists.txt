@@ -12,7 +12,7 @@ endif()
 # Deleting the file is the whole removal -
 # compact_ui.cpp reaches it through __has_include and needs no edit.
 set(LS_PRIVATE_SRC "")
-if(CONFIG_LS_SSH)
+if(CONFIG_LS_SSH_CLIENT)
     list(APPEND LS_PRIVATE_SRC ls_ssh.c)
 endif()
 if(EXISTS ${CMAKE_CURRENT_LIST_DIR}/private_console.cpp)

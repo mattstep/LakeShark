@@ -1,4 +1,4 @@
-/* Forced into every libssh translation unit (see the LS_SSH block in the
+/* Forced into every libssh translation unit (see the LS_SSH_CLIENT block in the
    top-level CMakeLists.txt).
 
    libssh's port/idf_compat.h defines NI_NUMERICHOST as lwIP's AI_NUMERICHOST,

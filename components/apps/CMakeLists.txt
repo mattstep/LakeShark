@@ -45,7 +45,7 @@ if(CONFIG_LS_BOARD_T_DISPLAY_P4 OR CONFIG_LS_PANEL_RUNTIME)
     # CONFIG is available at registration time, not in IDF's early dependency scan.
     idf_component_optional_requires(PRIVATE cartocore console esp_timer mbedtls)
 endif()
-if(CONFIG_LS_SSH)
+if(CONFIG_LS_SSH_CLIENT)
     # The SSH app (screens/ext/scr_ssh.c): session engine and terminal emulator.
     idf_component_optional_requires(PRIVATE lsssh)
 endif()

@@ -12,7 +12,7 @@
    emulator needs no lock - and does every NVS read and write. */
 
 #include "sdkconfig.h"
-#if defined(CONFIG_LS_SSH) && CONFIG_LS_SSH
+#if defined(CONFIG_LS_SSH_CLIENT) && CONFIG_LS_SSH_CLIENT
 
 #include "../../ls_tui_screen.h"
 #include "../../ls_tui_ui.h"

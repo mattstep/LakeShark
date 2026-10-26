@@ -1188,7 +1188,7 @@ static bool tui_session(void)
                                  ls_scr_files, ls_scr_experiments, ls_scr_terminal,
                                  ls_scr_update;
     extern const ls_app_doc_t ls_doc_tiles;
-#if defined(CONFIG_LS_SSH) && CONFIG_LS_SSH
+#if defined(CONFIG_LS_SSH_CLIENT) && CONFIG_LS_SSH_CLIENT
     extern const ls_tui_screen_t ls_scr_ssh;
     extern const ls_app_doc_t ls_doc_ssh;
 #endif
@@ -1250,7 +1250,7 @@ static bool tui_session(void)
               LS_APP_EXTRA, &ls_scr_diag, nullptr, &ls_doc_diag },
             { "terminal", "TERMINAL", "console", LS_ICON_TERMINAL, TUI_GREEN,
               LS_APP_EXTRA, &ls_scr_terminal, nullptr, &ls_doc_terminal },
-#if defined(CONFIG_LS_SSH) && CONFIG_LS_SSH
+#if defined(CONFIG_LS_SSH_CLIENT) && CONFIG_LS_SSH_CLIENT
             { "ssh", "SSH", "remote shell", LS_ICON_TERMINAL, TUI_CYAN,
               LS_APP_EXTRA, &ls_scr_ssh, nullptr, &ls_doc_ssh },
 #endif

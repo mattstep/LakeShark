@@ -3,7 +3,7 @@
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
-#if !defined(ESP_PLATFORM) || (defined(CONFIG_LS_SSH) && CONFIG_LS_SSH)
+#if !defined(ESP_PLATFORM) || (defined(CONFIG_LS_SSH_CLIENT) && CONFIG_LS_SSH_CLIENT)
 
 #include "ls_ssh_keys.h"
 

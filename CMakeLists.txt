@@ -103,7 +103,7 @@ set(LS_SIZE_OPT_COMPONENTS
     bt lwip esp_netif esp_http_client esp_http_server tcp_transport esp-tls
     console nvs_flash espcoredump spiffs json http_parser
     espressif__esp_hosted)
-if(CONFIG_LS_SSH)
+if(CONFIG_LS_SSH_CLIENT)
     list(APPEND LS_SIZE_OPT_COMPONENTS david-cermak__libssh)
 endif()
 foreach(ls_cold_comp IN LISTS LS_SIZE_OPT_COMPONENTS)
@@ -116,17 +116,11 @@ foreach(ls_cold_comp IN LISTS LS_SIZE_OPT_COMPONENTS)
     endif()
 endforeach()
 
-# libssh's mbedTLS digest layer exports sha512_init/update/final/sha512 as
-# plain global names, and MeshCore's bundled Ed25519 code exports the same
-# four. Rename libssh's copies at compile time; neither vendored tree is edited.
-if(CONFIG_LS_SSH)
+# libssh tweaks for the SSH client. (The sha512_* name clash between libssh
+# and MeshCore's Ed25519 is handled in components/meshcore/CMakeLists.txt.)
+if(CONFIG_LS_SSH_CLIENT)
     idf_component_get_property(ls_libssh_lib david-cermak__libssh COMPONENT_LIB)
     if(ls_libssh_lib)
-        target_compile_definitions(${ls_libssh_lib} PRIVATE
-            sha512_init=libssh_sha512_init
-            sha512_update=libssh_sha512_update
-            sha512_final=libssh_sha512_final
-            sha512=libssh_sha512)
         # getnameinfo() flag values: see main/ls_libssh_compat.h.
         target_compile_options(${ls_libssh_lib} PRIVATE
             "-include${CMAKE_CURRENT_LIST_DIR}/main/ls_libssh_compat.h")

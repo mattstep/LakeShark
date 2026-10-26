@@ -12,7 +12,7 @@
    the seed, so every call re-derives it from the seed. Ed25519 is
    deterministic: the signatures are byte-identical to libssh's own code.
 
-   Only compiled when CONFIG_LS_SSH is set (from the CMake block that adds it). */
+   Only compiled when CONFIG_LS_SSH_CLIENT is set (from the CMake block that adds it). */
 
 #include <stdint.h>
 #include <string.h>

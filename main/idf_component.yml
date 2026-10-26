@@ -1,10 +1,4 @@
 dependencies:
-  # Only with CONFIG_LS_SSH (boards/ssh.defaults): it will not compile
-  # without mbedTLS threading, which only that overlay turns on.
-  david-cermak/libssh:
-    version: "==0.12.2"
-    rules:
-      - if: "$CONFIG{LS_SSH} == True"
   chmorgan/esp-audio-player:
     version: "==1.0.7"
     override_path: "../components/chmorgan__esp-audio-player"

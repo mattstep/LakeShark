@@ -169,7 +169,7 @@ config LS_EXAMPLE_APP
     help
         Build and register the small shared-widget tap counter example.
 
-config LS_SSH
+config LS_SSH_CLIENT
     bool "SSH client (libssh, Ed25519 keys)"
     default n
     help
